@@ -5,3 +5,5 @@ pydantic-core>=2.18,<3
 uvicorn[standard]>=0.30,<0.31
 openai>=1.40.0
 SQLAlchemy==2.0.30
+google-genai==0.15.0
+Pillow==10.3.0
