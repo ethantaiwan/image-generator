@@ -76,9 +76,12 @@ def gemini_image_generation(prompt: str, count: int = 1) -> List[str]:
                 # 許多 SDK 版本會直接接受文字提示，然後在 part 中返回圖像數據。
                 # 讓我們將其保留為一個簡單的 generate_content 呼叫
                 # 如果 model="gemini-2.5-flash-image-preview" 能夠返回圖像，它會在 part 中。
+                max_output_tokens=0,
             }
         )
-        
+        print("\n--- GEMINI RESPONSE START ---")
+        print(response) 
+        print("--- GEMINI RESPONSE END ---\n")
         images_data_urls = []
         for part in response.parts:
            if hasattr(part, "inline_data") and part.inline_data.mime_type.startswith("image/"):
