@@ -22,7 +22,7 @@ GOOGLE_API_KEY ="AIzaSyDvljJC11fT8GiYk8_wh7qxGJbp3vLoOik"
 # 或許會因 SDK 版本而異。這裡我們保留您的寫法，但請確認您的 google-genai 版本支持。
 # 最標準的寫法是使用 DALL-E/Imagen 專屬的 API，但如果您的目標是使用 gemini-2.5-flash 驅動，則保持原樣。
 client = genai.Client(api_key=GOOGLE_API_KEY)
-model = GenerativeModel(model_name="gemini-2.5-flash-image-preview")  
+model_name="gemini-2.5-flash-image-preview"
 
 
 app = FastAPI()
@@ -69,7 +69,7 @@ def gemini_image_generation(prompt: str, count: int = 1) -> List[str]:
     try:
         # 為了獲得圖片輸出，我們必須使用 model.generate_content 並檢查 parts
         response = client.models.generate_content(
-            model='gemini-2.5-flash-image-preview',
+            model=model_name,
             contents=[prompt],
             config={
                 # 這裡設定 max_output_tokens=0 或 1，表示不期望有文字輸出
