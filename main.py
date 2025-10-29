@@ -10,7 +10,8 @@ import uuid
 
 # --- 環境變數設定和初始化 ---
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
-GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") 
+#GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") 
+GEMINI_API_KEY ="2132jwjnwjnqdw-ewlknqwjewkjewqnxjs-dasa"
 if not GOOGLE_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set.")
 
