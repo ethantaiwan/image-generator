@@ -1,8 +1,9 @@
-fastapi>=0.115,<0.116
-starlette>=0.40,<0.41
-pydantic>=2.7,<3
-pydantic-core>=2.18,<3
-uvicorn[standard]>=0.30,<0.31
-openai>=1.40.0
-SQLAlchemy==2.0.30
+fastapi~=2.0.0b1
+# uvicorn 是運行 FastAPI 應用程式的 ASGI 伺服器
+uvicorn[standard]
+# Pydantic V2 支援 Python 3.13，並且是 FastAPI 2.0 的推薦
+pydantic
+# 處理環境變數
+python-dotenv 
+# Google Generative AI SDK (新的庫，支援 Python 3.13)
 google-genai
