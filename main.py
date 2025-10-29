@@ -12,16 +12,16 @@ import uuid
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
 #GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY") 
 GOOGLE_API_KEY ="2132jwjnwjnqdw-ewlknqwjewkjewqnxjs-dasa"
-if not GOOGLE_API_KEY:
-    raise ValueError("GEMINI_API_KEY environment variable not set.")
 
-genai.configure(api_key=GOOGLE_API_KEY)
+#if not GOOGLE_API_KEY:
+#    raise ValueError("GEMINI_API_KEY environment variable not set.")
 
 # 圖像生成模型
 # 注意：使用 gemini-2.5-flash 來生成圖像時，它會自動呼叫底層的 Imagen 模型。
 # 您的原始程式碼中 model = GenerativeModel(model_name="gemini-2.5-flash-image-preview") 
 # 或許會因 SDK 版本而異。這裡我們保留您的寫法，但請確認您的 google-genai 版本支持。
 # 最標準的寫法是使用 DALL-E/Imagen 專屬的 API，但如果您的目標是使用 gemini-2.5-flash 驅動，則保持原樣。
+client = genai.Client(api_key=GOOGLE_API_KEY)
 model = GenerativeModel(model_name="gemini-2.5-flash-image-preview")  
 
 
