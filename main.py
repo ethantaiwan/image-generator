@@ -5,7 +5,6 @@ from typing import List, Optional
 from google import genai
 from google.genai import types
 import json, os
-from  google.genai import GenerativeModel
 import base64
 import uuid
 
@@ -68,7 +67,8 @@ def gemini_image_generation(prompt: str, count: int = 1) -> List[str]:
     """使用 Gemini API 生成圖片並回傳 Base64 Data URL 列表"""
     try:
         # 為了獲得圖片輸出，我們必須使用 model.generate_content 並檢查 parts
-        response = model.generate_content(
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-image-preview',
             contents=[prompt],
             config={
                 # 這裡設定 max_output_tokens=0 或 1，表示不期望有文字輸出
