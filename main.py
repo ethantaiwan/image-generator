@@ -2,8 +2,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-#from google import genai
-import google.generativeai as genai
+from google import genai
 from google.genai import types
 import json, os
 # 確保這個導入仍然存在，儘管您主要使用 genai
