@@ -62,7 +62,8 @@ except Exception as e:
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # 使用者指定的模型
-MODEL_NAME = "gemini-2.5-flash-image" 
+MODEL_NAME = os.getenv("model_name") 
+
 
 #try:
 #    response = client.models.generate_content(
@@ -107,7 +108,7 @@ def gemini_image_generation(prompt: str, count: int = 1) -> List[str]:
     注意：一次呼叫通常只會回一張，若要多張就 loop。
     """
     #model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
-    model = "gemini-2.5-flash-image" 
+    model = os.getenv("model_name") 
 
     urls: List[str] = []
 
@@ -157,7 +158,7 @@ def gemini_image_editing(
     image_mime_type: str = "image/jpeg"
 ) -> Optional[str]:
     #model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
-    model = "gemini-2.5-flash-image" 
+    model = os.getenv("model_name") 
 
     resp = client.models.generate_content(
         model=model,
