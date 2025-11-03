@@ -9,3 +9,4 @@ python-dotenv
 google-genai
 pyngrok
 nest_asyncio
+python-multipart
