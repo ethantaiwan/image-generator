@@ -7,3 +7,4 @@ pydantic
 python-dotenv 
 # Google Generative AI SDK (新的庫，支援 Python 3.13)
 google-genai
+pyngrok
