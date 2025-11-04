@@ -104,13 +104,15 @@ def looks_like_img_url(s: str) -> bool:
     return (
         s.startswith("data:image/") or
         s.startswith("http://") or s.startswith("https://") or
-        (re.fullmatch(r"[A-Za-z0-9+/=\s]+", s or "") and len(s) > 100)
+        # 僅用於判斷純 Base64 字串，但強烈建議使用 data:image/ 前綴
+        (re.fullmatch(r"[A-Za-z0-9+/=\s]+", s or "") and len(s) > 100) 
     )
 
 def find_image_strings(obj: Union[Dict, List]) -> List[str]:
-    """遞迴地在複雜的 JSON 結構中尋找圖片連結或 Base64 字串"""
+    """遞迴地在 JSON 結構中尋找圖片連結或 Base64 字串"""
     found = []
     if isinstance(obj, dict):
+        # 查找您需要的鍵: "image_url" (單數) 和 "image_urls" (複數)
         for k in ["image_url", "image", "url", "image_urls", "images", "urls", "results"]:
             if k in obj:
                 value = obj[k]
@@ -118,6 +120,7 @@ def find_image_strings(obj: Union[Dict, List]) -> List[str]:
                     found.append(value)
                 elif isinstance(value, (list, dict)):
                     found.extend(find_image_strings(value))
+        
         # 遞迴其他鍵
         for v in obj.values():
             if isinstance(v, (list, dict)):
@@ -131,43 +134,40 @@ def find_image_strings(obj: Union[Dict, List]) -> List[str]:
     return found
 
 
-# --- Pydantic 模型用於請求 Body ---
-class GeneratorRequest(BaseModel):
-    """用於接收遠端服務返回的 JSON 結構"""
-    # 這裡假設遠端服務回傳一個 JSON，結構不固定，但會包含圖片連結
+# --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
+class GeneratorOutput(BaseModel):
+    """用於接收您的生成 API 輸出的 JSON 結構"""
     data: Any
 
 
-# --- 圖片儲存和處理邏輯 ---
+# --- 圖片儲存邏輯 ---
 
-async def fetch_and_save_image(img_data: str, index: int) -> Union[str, None]:
-    """將 Base64 或 URL 圖片下載並儲存到持久性磁碟"""
+async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
+    """將 Base64 或 URL 圖片儲存到持久性磁碟"""
     filename = IMAGE_PATHS[index]
     full_path = os.path.join(PERSISTENT_STORAGE_PATH, filename)
     
     try:
         if img_data.startswith("data:image/"):
-            # 處理 Base64
+            # 處理 Base64 (移除 data:image/png;base64, 前綴)
             base64_content = img_data.split(",", 1)[1]
             image_bytes = base64.b64decode(base64_content)
         elif img_data.startswith(("http://", "https://")):
-            # 處理外部 URL
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(img_data)
-                response.raise_for_status()
-                image_bytes = response.content
+            # 處理外部 URL (由於您希望精簡，這裡將會返回錯誤，因為我們移除了 httpx)
+            raise ValueError("External URL processing is disabled in this simplified service.")
         else:
             # 處理純 Base64
             image_bytes = base64.b64decode(img_data)
 
         # 寫入到 Render 的 Persistent Disk (覆蓋舊檔案)
-        # 注意: 這裡使用 asyncio.to_thread 避免阻塞 FastAPI 的主線程
+        # 使用 asyncio.to_thread 避免阻塞
         await asyncio.to_thread(lambda: os.makedirs(os.path.dirname(full_path), exist_ok=True))
         await asyncio.to_thread(lambda: open(full_path, "wb").write(image_bytes))
 
         return PUBLIC_URL_PREFIX + filename
         
     except Exception as e:
+        # 捕捉所有儲存或解碼錯誤
         print(f"Error processing/saving image {filename}: {e}")
         return None
 # 數據模型 (Pydantic)
@@ -336,67 +336,56 @@ async def edit_image_api(
         raise HTTPException(status_code=500, detail=f"Image editing failed: {str(e)}")
 
 
-@app.post("/api/generate-and-upload", response_model=Dict[str, Any])
-async def generate_and_upload(request: GeneratorRequest):
+@app.post("/api/store-generated-images", response_model=Dict[str, Any])
+async def store_generated_images(request: GeneratorOutput):
     """
-    呼叫遠端 image-generator 服務，提取圖片並儲存到磁碟。
+    接收生成 API 的輸出 JSON，提取 Base64 圖片並儲存到 Render 磁碟。
     """
     
-    # --- 1. 呼叫遠端 Image Generator (模擬) ---
-    # 這裡假設遠端服務就是您要呼叫的 main.py 的 API 部署實例
-    try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            # 假設遠端服務接收與您本服務相同的 JSON 體 (body) 或其他參數
-            remote_response = await client.post(
-                REMOTE_IMAGE_GENERATOR_URL, 
-                json=request.data 
-            )
-            remote_response.raise_for_status()
-            remote_data = remote_response.json()
-    except Exception as e:
-        # 如果呼叫遠端服務失敗，則直接使用傳入的 JSON 體進行圖片提取
-        print(f"Warning: Failed to call remote generator. Using request body for extraction. Error: {e}")
-        remote_data = request.data
-
-
-    # --- 2. 提取圖片字串 ---
-    imgs_to_process = find_image_strings(remote_data)
-    imgs_to_process = imgs_to_process[:MAX_IMAGES] # 限制最多 4 張
+    # 這裡直接使用傳入的 JSON 體進行圖片提取
+    json_data = request.data 
+    
+    # --- 提取圖片字串 ---
+    imgs_to_process = find_image_strings(json_data)
+    
+    # 限制最多 4 張，並覆蓋固定的檔名 001.png 到 004.png
+    imgs_to_process = imgs_to_process[:MAX_IMAGES] 
 
     if not imgs_to_process:
         return JSONResponse(
             status_code=404,
-            content={"message": "No image Base64 or URL found in the generator response."}
+            content={"message": "No image Base64 or URL found in the provided JSON."}
         )
 
-    # --- 3. 儲存圖片到持久性磁碟 ---
-    upload_tasks = [fetch_and_save_image(img, i) for i, img in enumerate(imgs_to_process)]
+    # --- 儲存圖片到持久性磁碟 ---
+    upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
     uploaded_urls = await asyncio.gather(*upload_tasks)
     
     final_urls = [url for url in uploaded_urls if url]
 
     return {
-        "message": f"Successfully generated and stored {len(final_urls)} images.",
-        "uploaded_urls": final_urls
+        "message": f"Successfully stored {len(final_urls)} images to persistent disk.",
+        "stored_urls": final_urls
     }
 
 
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
 async def serve_image_from_disk(filename: str):
     """
-    公開路由：讓外部使用者存取磁碟上的圖片檔案。
+    公開路由：讓外部使用者存取磁碟上的圖片檔案 (e.g., .../lovable-uploads/temp/001.png)
     """
-    # 安全性檢查：確保路徑不包含 '..'
-    if '..' in filename or not filename.endswith('.png'):
-        raise HTTPException(status_code=400, detail="Invalid filename.")
+    # 安全性檢查：確保路徑安全且是 PNG
+    if '..' in filename or not filename.endswith('.png') or filename not in IMAGE_PATHS:
+        raise HTTPException(status_code=400, detail="Invalid filename or file type.")
     
     full_path = os.path.join(PERSISTENT_STORAGE_PATH, filename)
 
     if not os.path.exists(full_path):
-        raise HTTPException(status_code=404, detail="Image not found.")
+        raise HTTPException(status_code=404, detail="Image not found in persistent disk.")
     
-    # 使用 FileResponse 以優化方式傳輸檔案
+    # 使用 FileResponse 傳輸檔案
     return FileResponse(full_path, media_type="image/png")
+
 
 # --- 錯誤處理範例 ---
 @app.exception_handler(Exception)
