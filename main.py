@@ -268,7 +268,10 @@ def gemini_image_editing(
 # ==========================================================
 # 🚀 API 路由定義
 # ==========================================================
-
+@app.on_event("startup")
+async def startup_event():
+    """服務啟動時檢查並創建磁碟掛載點"""
+    os.makedirs(PERSISTENT_STORAGE_PATH, exist_ok=True)
 @app.get("/")
 def read_root():
     return {"status": "ok", "message": f"FastAPI Server is running. Model: {MODEL_NAME}"}
@@ -331,3 +334,74 @@ async def edit_image_api(
     except Exception as e:
         print(f"[edit_image_api] Error: {e}")
         raise HTTPException(status_code=500, detail=f"Image editing failed: {str(e)}")
+
+
+@app.post("/api/generate-and-upload", response_model=Dict[str, Any])
+async def generate_and_upload(request: GeneratorRequest):
+    """
+    呼叫遠端 image-generator 服務，提取圖片並儲存到磁碟。
+    """
+    
+    # --- 1. 呼叫遠端 Image Generator (模擬) ---
+    # 這裡假設遠端服務就是您要呼叫的 main.py 的 API 部署實例
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            # 假設遠端服務接收與您本服務相同的 JSON 體 (body) 或其他參數
+            remote_response = await client.post(
+                REMOTE_IMAGE_GENERATOR_URL, 
+                json=request.data 
+            )
+            remote_response.raise_for_status()
+            remote_data = remote_response.json()
+    except Exception as e:
+        # 如果呼叫遠端服務失敗，則直接使用傳入的 JSON 體進行圖片提取
+        print(f"Warning: Failed to call remote generator. Using request body for extraction. Error: {e}")
+        remote_data = request.data
+
+
+    # --- 2. 提取圖片字串 ---
+    imgs_to_process = find_image_strings(remote_data)
+    imgs_to_process = imgs_to_process[:MAX_IMAGES] # 限制最多 4 張
+
+    if not imgs_to_process:
+        return JSONResponse(
+            status_code=404,
+            content={"message": "No image Base64 or URL found in the generator response."}
+        )
+
+    # --- 3. 儲存圖片到持久性磁碟 ---
+    upload_tasks = [fetch_and_save_image(img, i) for i, img in enumerate(imgs_to_process)]
+    uploaded_urls = await asyncio.gather(*upload_tasks)
+    
+    final_urls = [url for url in uploaded_urls if url]
+
+    return {
+        "message": f"Successfully generated and stored {len(final_urls)} images.",
+        "uploaded_urls": final_urls
+    }
+
+
+@app.get(PUBLIC_URL_PREFIX + "{filename}")
+async def serve_image_from_disk(filename: str):
+    """
+    公開路由：讓外部使用者存取磁碟上的圖片檔案。
+    """
+    # 安全性檢查：確保路徑不包含 '..'
+    if '..' in filename or not filename.endswith('.png'):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+    
+    full_path = os.path.join(PERSISTENT_STORAGE_PATH, filename)
+
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail="Image not found.")
+    
+    # 使用 FileResponse 以優化方式傳輸檔案
+    return FileResponse(full_path, media_type="image/png")
+
+# --- 錯誤處理範例 ---
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"message": "An internal server error occurred.", "details": str(exc)},
+    )
