@@ -215,43 +215,38 @@ def create_kontext_and_generate(payload: KontextAndImageCreate):
     return ImageBatchResponse(full_prompt=full_prompt, image_urls=images)
 
 @app.post("/edit_image")
-async def edit_image_api(
-    edit_prompt: str = Form(...),
-    file: UploadFile = File(...)
-):
+async def edit_image_api(edit_prompt: str = Form(...),file: UploadFile = File(...)):
     """
-    呼叫 gemini_image_editing 進行圖片修改。
-    前端上傳圖片與提示詞即可，例如：
+    呼叫 gemini_image_editing 進行圖片修改。前端上傳圖片與提示詞即可，例如：
     FormData:
       - edit_prompt: "讓畫面更明亮，保持手繪質感"
       - file: <image>
     """
-
     try:
         # 讀取上傳的圖片 bytes
         original_image_bytes = await file.read()
         image_mime_type = file.content_type or "image/jpeg"
-
+    
         # 呼叫你原本的函式
         edited_image_data_url = gemini_image_editing(
             edit_prompt=edit_prompt,
             original_image_bytes=original_image_bytes,
             image_mime_type=image_mime_type
         )
-
+    
         if not edited_image_data_url:
             raise HTTPException(
                 status_code=500,
                 detail="Gemini 沒有返回圖片資料，請檢查模型權限或提示詞。"
             )
-
+    
         return {
             "edit_prompt": edit_prompt,
             "image_url": edited_image_data_url
         }
-
-
-# ❗ 修正：新增 except 區塊來處理錯誤 ❗
+    
+    
+    # ❗ 修正：新增 except 區塊來處理錯誤 ❗
     except HTTPException as e:
         # 捕捉您自己拋出的 HTTP 錯誤
         raise e
