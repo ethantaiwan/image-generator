@@ -136,10 +136,7 @@ def find_image_strings(obj: Union[Dict, List]) -> List[str]:
 
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
 class GeneratorOutput(BaseModel):
-    """用於接收您的生成 API 輸出的 JSON 結構"""
-    data: Any
-
-
+    data: Dict[str, Any]
 # --- 圖片儲存邏輯 ---
 
 async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
@@ -337,7 +334,7 @@ async def edit_image_api(
 
 
 @app.post("/api/store-generated-images", response_model=Dict[str, Any])
-async def store_generated_images(request: GeneratorOutput):
+async def store_generated_images(request_body: GeneratorOutput):
     """
     接收生成 API 的輸出 JSON，提取 Base64 圖片並儲存到 Render 磁碟。
     """
