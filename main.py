@@ -1,5 +1,6 @@
 # main.py
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
 from google import genai
@@ -18,8 +19,10 @@ import os
 import json
 import uuid
 import base64
-from typing import List, Optional
-
+from typing import Any, Dict, List, Union, Optional
+import nest_asyncio
+import re
+import io
 # --- FastAPI 和 Pydantic 相關匯入 ---
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 
@@ -32,10 +35,9 @@ from google.genai import types
 from google.genai.errors import APIError
 
 # --- Uvicorn 和 Asyncio 相關匯入 (用於 Notebook 啟動) ---
-import nest_asyncio
-from pyngrok import ngrok
-import uvicorn
-import asyncio 
+
+import httpx 
+
 
 # ==========================================================
 # ⚡️ 核心設定區塊
@@ -249,18 +251,16 @@ async def edit_image_api(
         }
 
 
-import json
-import re
-import base64
-import os
-import io
-import asyncio
-import httpx # 假設用於呼叫遠端的 image-generator 服務
-from typing import Any, Dict, List, Union
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
+# ❗ 修正：新增 except 區塊來處理錯誤 ❗
+    except HTTPException as e:
+        # 捕捉您自己拋出的 HTTP 錯誤
+        raise e
+    except Exception as e:
+        # 捕捉其他所有未預期的錯誤，例如檔案讀取失敗、API 連線錯誤等
+        raise HTTPException(
+            status_code=500,
+            detail=f"圖片編輯處理失敗: {str(e)}"
+        )
 
 # --- Render Persistent Disk 設定 ---
 # 這是您在 Render 儀表板設定的掛載點
