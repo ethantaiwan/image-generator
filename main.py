@@ -2,27 +2,23 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
-from typing import List, Optional
 from google import genai
 from google.genai import types
 import json, os
 import base64
 import uuid
-
+from typing import Any, Dict, List, Union, Optional
+import re
+import io
 # --- 環境變數設定和初始化 ---
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
 
 if not GOOGLE_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set.")
-import os
-import json
-import uuid
-import base64
-from typing import Any, Dict, List, Union, Optional
-import nest_asyncio
-import re
-import io
+
+
+
 # --- FastAPI 和 Pydantic 相關匯入 ---
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 
@@ -252,87 +248,3 @@ async def edit_image_api(
     except Exception as e:
         print(f"[edit_image_api] Error: {e}")
         raise HTTPException(status_code=500, detail=f"Image editing failed: {str(e)}")
-
-# --- Render Persistent Disk 設定 ---
-# 這是您在 Render 儀表板設定的掛載點
-PERSISTENT_STORAGE_PATH = "/var/data" 
-MAX_IMAGES = 4
-IMAGE_PATHS = [f"00{i}.png" for i in range(1, MAX_IMAGES + 1)]
-PUBLIC_URL_PREFIX = "/image-uploads/temp/"
-
-# --- 假設遠端服務的 URL ---
-# 請將這裡替換成您實際部署 image-generator 的 API 地址
-REMOTE_IMAGE_GENERATOR_URL = "https://image-generator-i03j.onrender.com/api/image-generate" 
-
-
-# --- 輔助函式：JSON 圖片字串提取 (根據您的要求) ---
-
-def looks_like_img_url(s: str) -> bool:
-    """粗略判斷字串是否為圖片連結或 Base64 字串"""
-    s = s.strip()
-    return (
-        s.startswith("data:image/") or
-        s.startswith("http://") or s.startswith("https://") or
-        (re.fullmatch(r"[A-Za-z0-9+/=\s]+", s or "") and len(s) > 100)
-    )
-
-def find_image_strings(obj: Union[Dict, List]) -> List[str]:
-    """遞迴地在複雜的 JSON 結構中尋找圖片連結或 Base64 字串"""
-    found = []
-    if isinstance(obj, dict):
-        for k in ["image_url", "image", "url", "image_urls", "images", "urls", "results"]:
-            if k in obj:
-                value = obj[k]
-                if isinstance(value, str) and looks_like_img_url(value):
-                    found.append(value)
-                elif isinstance(value, (list, dict)):
-                    found.extend(find_image_strings(value))
-        # 遞迴其他鍵
-        for v in obj.values():
-            if isinstance(v, (list, dict)):
-                found.extend(find_image_strings(v))
-    elif isinstance(obj, list):
-        for v in obj:
-            if isinstance(v, str) and looks_like_img_url(v):
-                 found.append(v)
-            elif isinstance(v, (list, dict)):
-                found.extend(find_image_strings(v))
-    return found
-
-
-# --- Pydantic 模型用於請求 Body ---
-class GeneratorRequest(BaseModel):
-    """用於接收遠端服務返回的 JSON 結構"""
-    # 這裡假設遠端服務回傳一個 JSON，結構不固定，但會包含圖片連結
-    data: Any
-
-
-# --- 圖片儲存和處理邏輯 ---
-
-async def fetch_and_save_image(img_data: str, index: int) -> Union[str, None]:
-    """將 Base64 或 URL 圖片下載並儲存到持久性磁碟"""
-    filename = IMAGE_PATHS[index]
-    full_path = os.path.join(PERSISTENT_STORAGE_PATH, filename)
-    
-    try:
-        if img_data.startswith("data:image/"):
-            # 處理 Base64
-            base64_content = img_data.split(",", 1)[1]
-            image_bytes = base64.b64decode(base64_content)
-        elif img_data.startswith(("http://", "https://")):
-            # 處理外部 URL
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(img_data)
-                response.raise_for_status()
-                image_bytes = response.content
-        else:
-            # 處理純 Base64
-            image_bytes = base64.b64decode(img_data)
-
-        # 寫入到 Render 的 Persistent Disk (覆蓋舊檔案)
-        # 注意: 這裡使用 asyncio.to_thread 避免阻塞 FastAPI 的主線程
-        await asyncio.to_thread(lambda: os.makedirs(os.path.dirname(full_path), exist_ok=True))
-        await asyncio.to_thread(lambda: open(full_path, "wb").write(image_bytes))
-
-        return PUBLIC_URL_PREFIX + filename
-        
