@@ -349,8 +349,7 @@ async def store_generated_images(request_body: GeneratorOutput):
     """
     
     # 這裡直接使用傳入的 JSON 體進行圖片提取
-    json_data = request.data 
-    
+    json_data = request_body.model_dump()
     # --- 提取圖片字串 ---
     imgs_to_process = find_image_strings(json_data)
     
