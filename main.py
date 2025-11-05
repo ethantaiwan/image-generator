@@ -183,14 +183,14 @@ class KontextAndImageCreate(BaseModel):
     character_name: str
     description: str
     base_prompt: Optional[str] = None
-   # image_count: int = 1 # 由於 generate_content 限制，這裡預設改為 1
+    image_count: int = 1 # 由於 generate_content 限制，這裡預設改為 1
 
 class ImageBatchResponse(BaseModel):
     full_prompt: str
     image_urls: List[str]
 
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
-def gemini_image_generation(prompt: str) -> List[str]:
+def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
     """
     使用 gemini-2.5-flash-image 進行文生圖，回傳 Base64 Data URL。
     注意：一次呼叫通常只會回一張，若要多張就 loop。
@@ -201,18 +201,18 @@ def gemini_image_generation(prompt: str) -> List[str]:
     urls: List[str] = []
 
     # 依需求產生多張
-    #for _ in range(max(1, count)):
-    resp = client.models.generate_content(
-        model=model,
-        contents=[prompt],
-        # 關鍵：指定只回 Image，避免文字吞掉輸出；需要新版本 google-genai
-        config=types.GenerateContentConfig(
-            response_modalities=["Image"],        # ← 只回圖片
-            # 可選：設定比例（官方文件支援 image_config.aspect_ratio）
-            # image_config=types.ImageConfig(aspect_ratio="1:1"),
-            temperature=0.8,
-        ),
-    )
+    for _ in range(max(1, count)):
+        resp = client.models.generate_content(
+            model=model,
+            contents=[prompt],
+            # 關鍵：指定只回 Image，避免文字吞掉輸出；需要新版本 google-genai
+            config=types.GenerateContentConfig(
+                response_modalities=["Image"],        # ← 只回圖片
+                # 可選：設定比例（官方文件支援 image_config.aspect_ratio）
+                # image_config=types.ImageConfig(aspect_ratio="1:1"),
+                temperature=0.8,
+            ),
+        )
 
         # 正確解析路徑：candidates[0].content.parts
         parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
