@@ -371,16 +371,17 @@ async def store_generated_images(
 
     # --- 儲存圖片到持久性磁碟 ---
     #upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
-    upload_tasks = save_image_to_disk(imgs_to_process_ , target_index) 
+    upload_tasks = await save_image_to_disk(imgs_to_process_ , target_index) 
 
     uploaded_urls = await asyncio.gather(*upload_tasks)
-    
-    final_urls = [url for url in uploaded_urls if url]
-
+    if not uploaded_urls:
+        raise HTTPException(status_code=500, detail="Failed to save image to disk.")
+    #final_urls = [url for url in uploaded_urls if url]
+    final_urls = [uploaded_urls]
     return {
-        "message": f"Successfully stored {len(final_urls)} images to persistent disk.",
-        "stored_urls": final_urls
-    }
+            "message": f"Successfully stored 1 image to persistent disk (Index {target_index}).",
+            "stored_urls": final_urls
+        }
 
 
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
