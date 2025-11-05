@@ -175,9 +175,13 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         return PUBLIC_URL_PREFIX + filename
         
     except Exception as e:
-        # 捕捉所有儲存或解碼錯誤
-        print(f"Error processing/saving image {filename}: {e}")
-        return None
+    # ❗ 修正點：將詳細的錯誤信息打印出來 ❗
+    print(f"--- DISK SAVE ERROR ---")
+    print(f"Target Path: {full_path}")
+    print(f"Error Type: {type(e).__name__}")
+    print(f"Error Details: {e}")
+    print("-----------------------")
+    return None
 # 數據模型 (Pydantic)
 class KontextAndImageCreate(BaseModel):
     user_id: str
@@ -371,9 +375,9 @@ async def store_generated_images(
 
     # --- 儲存圖片到持久性磁碟 ---
     #upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
-    upload_tasks = await save_image_to_disk(imgs_to_process_ , target_index) 
+    uploaded_urls = await save_image_to_disk(imgs_to_process_ , target_index) 
 
-    uploaded_urls = asyncio.gather(*upload_tasks) #如只處理一張圖片不需要了
+    #uploaded_urls = asyncio.gather(*upload_tasks) #如只處理一張圖片不需要了
     if not uploaded_urls:
         raise HTTPException(status_code=500, detail="Failed to save image to disk.")
     #final_urls = [url for url in uploaded_urls if url]
