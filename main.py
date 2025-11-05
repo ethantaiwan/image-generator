@@ -157,7 +157,8 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
     try:
         if img_data.startswith("data:image/"):
             # 處理 Base64 (移除 data:image/png;base64, 前綴)
-            base64_content = img_data.split(",", 1)[1]
+            #base64_content = img_data.split(",", 1)[1]
+            base64_content = img_data.imgs_str.split(",", 1)[1]
             image_bytes = base64.b64decode(base64_content)
         elif img_data.startswith(("http://", "https://")):
             # 處理外部 URL (由於您希望精簡，這裡將會返回錯誤，因為我們移除了 httpx)
@@ -355,7 +356,7 @@ async def store_generated_images(request_body: GeneratorOutput):
     imgs_to_process = find_image_strings(json_data)
     
     # 限制最多 4 張，並覆蓋固定的檔名 001.png 到 004.png
-    imgs_to_process = imgs_to_process[:MAX_IMAGES] 
+    imgs_to_process_ = imgs_to_process[:MAX_IMAGES] 
 
     if not imgs_to_process:
         return JSONResponse(
@@ -364,7 +365,9 @@ async def store_generated_images(request_body: GeneratorOutput):
         )
 
     # --- 儲存圖片到持久性磁碟 ---
-    upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
+    #upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
+    upload_tasks = save_image_to_disk(imgs_to_process, 0) 
+
     uploaded_urls = await asyncio.gather(*upload_tasks)
     
     final_urls = [url for url in uploaded_urls if url]
