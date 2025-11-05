@@ -109,7 +109,7 @@ def looks_like_img_url(s: str) -> bool:
         (re.fullmatch(r"[A-Za-z0-9+/=\s]+", s or "") and len(s) > 100) 
     )
 
-ddef find_image_strings(obj: Union[Dict, List]) -> List[str]:
+def find_image_strings(obj: Union[Dict, List]) -> List[str]:
     """遞迴地在 JSON 結構中尋找圖片連結或 Base64 字串"""
     found = []
     
