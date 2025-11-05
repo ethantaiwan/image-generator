@@ -151,13 +151,12 @@ def find_image_strings(obj: Union[Dict, List]) -> List[str]:
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
 class GeneratorOutput(BaseModel):
     """用於接收您的生成 API 輸出的 JSON 結構"""
-    full_prompt: str
-    image_urls: List[str]  # 這是您提取圖片的關鍵鍵
-    # 也可以加上其他您可能傳入的鍵，例如:
-    # edit_prompt: Optional[str] = None 
-    # data: Optional[Dict[str, Any]] = None # 如果您仍需處理外層 data 鍵
+    full_prompt: Optional[str] = None 
+    edit_prompt: Optional[str] = None
+    image_url: Optional[str] = None 
+    image_urls: Optional[List[str]] = None 
     
-    # 允許模型接收未在上面明確定義的其他額外鍵值 (extra fields)
+    # 允許模型接收未在上面明確定義的其他額外鍵值
     class Config:
         extra = "allow"
 # --- 圖片儲存邏輯 ---
