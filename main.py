@@ -109,31 +109,44 @@ def looks_like_img_url(s: str) -> bool:
         (re.fullmatch(r"[A-Za-z0-9+/=\s]+", s or "") and len(s) > 100) 
     )
 
-def find_image_strings(obj: Union[Dict, List]) -> List[str]:
+ddef find_image_strings(obj: Union[Dict, List]) -> List[str]:
     """遞迴地在 JSON 結構中尋找圖片連結或 Base64 字串"""
     found = []
+    
+    # 定義所有可能包含圖片字串的鍵
+    IMAGE_KEYS = ["image_url", "image", "url", "image_urls", "images", "urls", "results"]
+    
     if isinstance(obj, dict):
-        # 查找您需要的鍵: "image_url" (單數) 和 "image_urls" (複數)
-        for k in ["image_url", "image", "url", "image_urls", "images", "urls", "results"]:
-            if k in obj:
-                value = obj[k]
+        for k, value in obj.items():
+            
+            # 檢查鍵是否是我們預期的圖片鍵
+            if k in IMAGE_KEYS:
+                
+                # 情況 A: 處理單一圖片字串 (例如 "image_url": "base64...")
                 if isinstance(value, str) and looks_like_img_url(value):
                     found.append(value)
-                elif isinstance(value, (list, dict)):
-                    found.extend(find_image_strings(value))
-        
-        # 遞迴其他鍵
-        for v in obj.values():
-            if isinstance(v, (list, dict)):
-                found.extend(find_image_strings(v))
+                
+                # 情況 B: 處理圖片陣列 (例如 "image_urls": ["base64...", "http://..."])
+                elif isinstance(value, list):
+                    for v in value:
+                        if isinstance(v, str) and looks_like_img_url(v):
+                            found.append(v)
+                        elif isinstance(v, dict):
+                            # 遞迴處理陣列內的字典 (以防是巢狀結構)
+                            found.extend(find_image_strings(v))
+                            
+            # 遞迴所有值 (處理巢狀結構)
+            elif isinstance(value, (list, dict)):
+                found.extend(find_image_strings(value))
+                
     elif isinstance(obj, list):
         for v in obj:
             if isinstance(v, str) and looks_like_img_url(v):
                  found.append(v)
             elif isinstance(v, (list, dict)):
                 found.extend(find_image_strings(v))
+    
     return found
-
 
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
 class GeneratorOutput(BaseModel):
