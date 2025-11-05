@@ -88,7 +88,7 @@ app.add_middleware(
 # ⚙️ 數據模型與輔助函數
 # ==========================================================
 PERSISTENT_STORAGE_PATH = "/var/data" 
-MAX_IMAGES = 1
+MAX_IMAGES = 2
 IMAGE_PATHS = [f"00{i}.png" for i in range(1, MAX_IMAGES + 1)]
 PUBLIC_URL_PREFIX = "/image-uploads/temp/"
 
