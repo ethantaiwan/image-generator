@@ -176,12 +176,12 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         
     except Exception as e:
     # ❗ 修正點：將詳細的錯誤信息打印出來 ❗
-    print(f"--- DISK SAVE ERROR ---")
-    print(f"Target Path: {full_path}")
-    print(f"Error Type: {type(e).__name__}")
-    print(f"Error Details: {e}")
-    print("-----------------------")
-    return None
+        print(f"--- DISK SAVE ERROR ---")
+        print(f"Target Path: {full_path}")
+        print(f"Error Type: {type(e).__name__}")
+        print(f"Error Details: {e}")
+        print("-----------------------")
+        return None
 # 數據模型 (Pydantic)
 class KontextAndImageCreate(BaseModel):
     user_id: str
