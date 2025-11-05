@@ -158,7 +158,7 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         if img_data.startswith("data:image/"):
             # 處理 Base64 (移除 data:image/png;base64, 前綴)
             #base64_content = img_data.split(",", 1)[1]
-            base64_content = img_data.imgs_str.split(",", 1)[1]
+            base64_content = img_data.split(",", 1)[1]
             image_bytes = base64.b64decode(base64_content)
         elif img_data.startswith(("http://", "https://")):
             # 處理外部 URL (由於您希望精簡，這裡將會返回錯誤，因為我們移除了 httpx)
