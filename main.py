@@ -363,7 +363,7 @@ async def store_generated_images(
     # 限制最多 4 張，並覆蓋固定的檔名 001.png 到 004.png
     imgs_to_process_ = imgs_to_process[0] 
 
-    if not imgs_to_process:
+    if not imgs_to_process_:
         return JSONResponse(
             status_code=404,
             content={"message": "No image Base64 or URL found in the provided JSON."}
@@ -371,9 +371,9 @@ async def store_generated_images(
 
     # --- 儲存圖片到持久性磁碟 ---
     #upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
-    uploaded_urls = await save_image_to_disk(imgs_to_process_ , target_index) 
+    upload_tasks = await save_image_to_disk(imgs_to_process_ , target_index) 
 
-    #uploaded_urls = asyncio.gather(*upload_tasks) #如只處理一張圖片不需要了
+    uploaded_urls = asyncio.gather(*upload_tasks) #如只處理一張圖片不需要了
     if not uploaded_urls:
         raise HTTPException(status_code=500, detail="Failed to save image to disk.")
     #final_urls = [url for url in uploaded_urls if url]
