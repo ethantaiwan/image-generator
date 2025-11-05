@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from google import genai
@@ -88,13 +88,13 @@ app.add_middleware(
 # ⚙️ 數據模型與輔助函數
 # ==========================================================
 PERSISTENT_STORAGE_PATH = "/var/data" 
-MAX_IMAGES = 2
+MAX_IMAGES = 4
 IMAGE_PATHS = [f"00{i}.png" for i in range(1, MAX_IMAGES + 1)]
 PUBLIC_URL_PREFIX = "/image-uploads/temp/"
 
 # --- 假設遠端服務的 URL ---
 # 請將這裡替換成您實際部署 image-generator 的 API 地址
-REMOTE_IMAGE_GENERATOR_URL = "https://[your-image-generator-service]/api/generate" 
+REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/api/image-generator" 
 
 
 # --- 輔助函式：JSON 圖片字串提取 (根據您的要求) ---
@@ -345,7 +345,12 @@ async def edit_image_api(
 
 
 @app.post("/api/store-generated-images", response_model=Dict[str, Any])
-async def store_generated_images(request_body: GeneratorOutput):
+async def store_generated_images(
+    request_body: GeneratorOutput,
+    # ❗ 修正點 1: 新增 Query 參數來決定覆蓋的檔案編號 ❗
+    target_index: int = Query(0, ge=0, le=(MAX_IMAGES - 1), 
+                              description="目標檔案索引 (0=001.png, 1=002.png, ..., 3=004.png)")
+):
     """
     接收生成 API 的輸出 JSON，提取 Base64 圖片並儲存到 Render 磁碟。
     """
@@ -356,7 +361,7 @@ async def store_generated_images(request_body: GeneratorOutput):
     imgs_to_process = find_image_strings(json_data)
     
     # 限制最多 4 張，並覆蓋固定的檔名 001.png 到 004.png
-    imgs_to_process_ = imgs_to_process[:MAX_IMAGES] 
+    imgs_to_process_ = imgs_to_process[0] 
 
     if not imgs_to_process:
         return JSONResponse(
@@ -366,7 +371,7 @@ async def store_generated_images(request_body: GeneratorOutput):
 
     # --- 儲存圖片到持久性磁碟 ---
     #upload_tasks = [save_image_to_disk(img, i) for i, img in enumerate(imgs_to_process)]
-    upload_tasks = save_image_to_disk(imgs_to_process, 0) 
+    upload_tasks = save_image_to_disk(imgs_to_process_ , target_index) 
 
     uploaded_urls = await asyncio.gather(*upload_tasks)
     
