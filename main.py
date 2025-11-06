@@ -384,44 +384,50 @@ async def edit_image_api(
     """
     original_image_bytes = None
     image_mime_type = None
+    # 1. 檢查是否同時傳入 file 和 target_index (排他性檢查)
+    if file and file.filename and target_index is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="請選擇其中一種圖片輸入方式：上傳檔案或提供圖片索引，不可同時使用。"
+        )
 
-    if file and file.filename:
-        # 情況 A: 處理上傳的檔案 (優先)
+    # 2. 情況 A: 處理上傳的檔案
+    if file and file.filename: 
         original_image_bytes = await file.read()
         image_mime_type = file.content_type or "image/jpeg"
         await file.close()
 
+    # 3. 情況 B: 處理圖片索引 (下載邏輯必須放在這裡)
     elif target_index is not None:
-        # 情況 B: 處理已儲存的圖片索引 (例如 001.png)
         try:
-            # ❗ 修正點 3: 在後端組成完整的 URL ❗
+            # 這裡放置完整的下載邏輯
             url_to_fetch = get_full_public_image_url(request, target_index)
             
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(url_to_fetch)
-                response.raise_for_status() 
+                response.raise_for_status()
                 
                 original_image_bytes = response.content
                 image_mime_type = response.headers.get("Content-Type", "image/png")
 
         except ValueError as ve:
+            # 處理 get_full_public_image_url 拋出的錯誤
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
-            # 這可能發生在 Render 服務無法訪問自己公開的圖片時 (內部網路問題)
+            # 處理 httpx 下載失敗的錯誤
             raise HTTPException(
                 status_code=500,
                 detail=f"無法從已儲存的圖片 URL 下載圖片 (Index {target_index})：{str(e)}"
             )
             
+    # 4. 錯誤處理: 既沒有檔案也沒有索引
     else:
         raise HTTPException(
             status_code=400,
             detail="請提供一個要修改的圖片檔案或已儲存圖片的索引 (0-3)。"
         )
     
-    # --- 呼叫圖片編輯邏輯 (保持不變) ---
-    # ... (後續 gemini_image_editing 邏輯) ...
-    # ... (回傳邏輯) ...
+    
 @app.post("/api/store-generated-images", response_model=Dict[str, Any])
 async def store_generated_images(
     request_body: GeneratorOutput,
