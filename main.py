@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Request, Query, APIRouter, Form, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from google import genai
@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Union, Optional
 import re
 import io
 import asyncio
+import httpx # 確保 httpx 已安裝並導入
+
 # --- 環境變數設定和初始化 ---
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
@@ -21,7 +23,6 @@ if not GOOGLE_API_KEY:
 
 
 # --- FastAPI 和 Pydantic 相關匯入 ---
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -33,7 +34,6 @@ from google.genai.errors import APIError
 
 # --- Uvicorn 和 Asyncio 相關匯入 (用於 Notebook 啟動) ---
 
-import httpx 
 
 
 # ==========================================================
@@ -98,7 +98,17 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 
 
 # --- 輔助函式：JSON 圖片字串提取 (根據您的要求) ---
-
+def get_full_public_image_url(request: Request, index: int) -> str:
+    """
+    根據請求物件和索引，組成完整的公開 URL。
+    """
+    base_url = "https://image-generator-i03j.onrender.com"
+    if 0 <= index < len(IMAGE_PATHS):
+        filename = IMAGE_PATHS[index]
+        # 使用 request.base_url 獲取服務的根 URL (例如 https://image-generator-i03j.onrender.com)
+        # 並拼接公開前綴和檔名
+        return str(request.base_url).rstrip('/') + PUBLIC_URL_PREFIX + filename
+    raise ValueError("Invalid target index.")
 def looks_like_img_url(s: str) -> bool:
     """粗略判斷字串是否為圖片連結或 Base64 字串"""
     s = s.strip()
@@ -319,47 +329,99 @@ def create_kontext_and_generate(payload: KontextAndImageCreate):
         
     # 由於我們移除了文件持久化，這裡只返回生成的圖像
     return ImageBatchResponse(full_prompt=full_prompt, image_urls=images)
-@app.post("/edit_image")
-async def edit_image_api(
-    edit_prompt: str = Form(...),
-    file: UploadFile = File(...)
-):
-    """
-    呼叫 gemini_image_editing 進行圖片修改。
-    前端上傳圖片與提示詞即可，例如：
-    FormData:
-      - edit_prompt: "讓畫面更明亮，保持手繪質感"
-      - file: <image>
-    """
+#@app.post("/edit_image")
+#async def edit_image_api(
+#    edit_prompt: str = Form(...),
+#    file: UploadFile = File(...)
+#):
+#    """
+#    呼叫 gemini_image_editing 進行圖片修改。
+#    前端上傳圖片與提示詞即可，例如：
+#    FormData:
+#      - edit_prompt: "讓畫面更明亮，保持手繪質感"
+#      - file: <image>
+#    """
 
-    try:
-        # 讀取上傳的圖片 bytes
-        original_image_bytes = await file.read()
-        image_mime_type = file.content_type or "image/jpeg"
+ #   try:
+ #       # 讀取上傳的圖片 bytes
+ #       original_image_bytes = await file.read()
+ #       image_mime_type = file.content_type or "image/jpeg"
 
         # 呼叫你原本的函式
-        edited_image_data_url = gemini_image_editing(
-            edit_prompt=edit_prompt,
-            original_image_bytes=original_image_bytes,
-            image_mime_type=image_mime_type
-        )
+ #       edited_image_data_url = gemini_image_editing(
+ #           edit_prompt=edit_prompt,
+ #           original_image_bytes=original_image_bytes,
+ #           image_mime_type=image_mime_type
+ #       )
 
-        if not edited_image_data_url:
+  #      if not edited_image_data_url:
+   #         raise HTTPException(
+    #            status_code=500,
+     #           detail="Gemini 沒有返回圖片資料，請檢查模型權限或提示詞。"
+      #      )
+
+       # return {
+        #    "edit_prompt": edit_prompt,
+         #   "image_url": edited_image_data_url
+        #}
+
+   # except Exception as e:
+   #     print(f"[edit_image_api] Error: {e}")
+   #     raise HTTPException(status_code=500, detail=f"Image editing failed: {str(e)}")
+
+
+@app.post("/edit_image")
+async def edit_image_api(
+    request: Request, # ❗ 修正點 1: 必須傳入 Request 物件來獲取 base_url ❗
+    edit_prompt: str = Form(...),
+    file: Optional[UploadFile] = File(None), 
+    # 修正點 2: 移除 image_url，改為 target_index
+    target_index: Optional[int] = Query(None, ge=0, le=3, 
+                                        description="要修改的已儲存圖片索引 (0=001.png, 1=002.png, ...)")
+):
+    """
+    進行圖片修改。圖片來源可選：直接上傳檔案 或 提供已儲存的圖片索引。
+    """
+    original_image_bytes = None
+    image_mime_type = None
+
+    if file and file.filename:
+        # 情況 A: 處理上傳的檔案 (優先)
+        original_image_bytes = await file.read()
+        image_mime_type = file.content_type or "image/jpeg"
+        await file.close()
+
+    elif target_index is not None:
+        # 情況 B: 處理已儲存的圖片索引 (例如 001.png)
+        try:
+            # ❗ 修正點 3: 在後端組成完整的 URL ❗
+            url_to_fetch = get_full_public_image_url(request, target_index)
+            
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url_to_fetch)
+                response.raise_for_status() 
+                
+                original_image_bytes = response.content
+                image_mime_type = response.headers.get("Content-Type", "image/png")
+
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
+        except Exception as e:
+            # 這可能發生在 Render 服務無法訪問自己公開的圖片時 (內部網路問題)
             raise HTTPException(
                 status_code=500,
-                detail="Gemini 沒有返回圖片資料，請檢查模型權限或提示詞。"
+                detail=f"無法從已儲存的圖片 URL 下載圖片 (Index {target_index})：{str(e)}"
             )
-
-        return {
-            "edit_prompt": edit_prompt,
-            "image_url": edited_image_data_url
-        }
-
-    except Exception as e:
-        print(f"[edit_image_api] Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Image editing failed: {str(e)}")
-
-
+            
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="請提供一個要修改的圖片檔案或已儲存圖片的索引 (0-3)。"
+        )
+    
+    # --- 呼叫圖片編輯邏輯 (保持不變) ---
+    # ... (後續 gemini_image_editing 邏輯) ...
+    # ... (回傳邏輯) ...
 @app.post("/api/store-generated-images", response_model=Dict[str, Any])
 async def store_generated_images(
     request_body: GeneratorOutput,
