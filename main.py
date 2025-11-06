@@ -588,7 +588,7 @@ async def edit_image_and_store(
 async def generate_image_store(
     payload: KontextAndImageCreate,
     # ❗ 修正點 1: 新增起始索引參數 ❗
-    target_start_index: int = Query(0, ge=0, le=(MAX_IMAGES - 1), 
+    target_index: int = Query(0, ge=0, le=(MAX_IMAGES - 1), 
                                     description="生成的圖片開始儲存的索引 (0=001.png, 1=002.png)")
 ):
     """
