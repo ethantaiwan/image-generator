@@ -581,6 +581,71 @@ async def edit_image_and_store(
         "image_url": edited_image_data_url, # 編輯後的 Base64 Data URL
         "uploaded_urls": final_urls          # 編輯後圖片的公開存取 URL
     }
+
+# ... (其他導入和常數保持不變)
+
+@app.post("/generate_image_store", response_model=Dict[str, Any])
+async def generate_image_store(
+    payload: KontextAndImageCreate,
+    # ❗ 修正點 1: 新增起始索引參數 ❗
+    target_start_index: int = Query(0, ge=0, le=(MAX_IMAGES - 1), 
+                                    description="生成的圖片開始儲存的索引 (0=001.png, 1=002.png)")
+):
+    """
+    執行圖片生成，並將生成的圖片儲存到 Render 磁碟上，從 target_start_index 開始覆蓋。
+    """
+    
+    # --- 1. 圖片生成 (邏輯保持不變) ---
+    base_prompt = payload.base_prompt if payload.base_prompt else ""
+    full_prompt = f"{payload.description}. {base_prompt}"
+    images = gemini_image_generation(full_prompt, count=payload.image_count)
+
+    if not images:
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini generation failed or no image data returned."
+        )
+
+    # 限制儲存數量，最多為 MAX_IMAGES (4)
+    images_to_store = images[:MAX_IMAGES]
+    
+    # --- 2. 儲存圖片到持久性磁碟 (修正儲存索引邏輯) ---
+    
+    upload_tasks = []
+    
+    # ❗ 修正點 2: 使用 target_start_index 作為起始索引 ❗
+    for i, img_data in enumerate(images_to_store):
+        # 最終儲存的索引是 (起始索引 + 迴圈索引)
+        target_disk_index = target_start_index + i
+        
+        # 檢查是否超出最大允許的檔案數量 (0 到 3)
+        if target_disk_index >= MAX_IMAGES: 
+            break 
+            
+        # 呼叫 save_image_to_disk，傳入計算後的索引
+        task = save_image_to_disk(img_data, target_disk_index)
+        upload_tasks.append(task)
+
+    # ... (後續的 asyncio.gather 和回傳邏輯保持不變) ...
+    try:
+        stored_urls = asyncio.run(asyncio.gather(*upload_tasks)) 
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"圖片儲存到磁碟失敗: {str(e)}")
+
+    final_urls = [url for url in stored_urls if url]
+    
+    if not final_urls:
+         raise HTTPException(status_code=500, detail="圖片已生成，但儲存到磁碟全部失敗。")
+         
+    # --- 3. 最終回傳 ---
+    return {
+        "message": f"Successfully generated and stored {len(final_urls)} images, starting from index {target_start_index}.",
+        "full_prompt": full_prompt,
+        "image_urls": images,      
+        "uploaded_urls": final_urls 
+    }
+
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
 async def serve_image_from_disk(filename: str):
     """
