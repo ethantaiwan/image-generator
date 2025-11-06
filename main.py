@@ -298,7 +298,47 @@ def gemini_image_editing(
             mime = inline.mime_type or "image/png"
             return f"data:{mime};base64,{b64}"
     return None
+async def get_image_data_for_editing(
+    request: Request,
+    file: Optional[UploadFile],
+    target_index: int
+) -> tuple[bytes, str]:
+    """
+    根據檔案或索引，獲取原始圖片的 bytes 和 MIME Type。
+    (這是 edit_image_api 中最核心的圖片獲取邏輯)
+    """
+    original_image_bytes = None
+    image_mime_type = None
 
+    if file and file.filename: 
+        # 情況 A: 使用新上傳的檔案
+        try:
+            original_image_bytes = await file.read()
+            image_mime_type = file.content_type or "image/jpeg"
+            await file.close()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"讀取上傳檔案時發生錯誤: {str(e)}")
+
+    else:
+        # 情況 B: 使用 target_index 組成的 URL 下載已存圖片
+        try:
+            url_to_fetch = get_full_public_image_url(request, target_index)
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.get(url_to_fetch)
+                response.raise_for_status() 
+                original_image_bytes = response.content
+                image_mime_type = response.headers.get("Content-Type", "image/png")
+
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"無法從已儲存的圖片 (Index {target_index}) 下載圖片。請確認檔案是否存在。錯誤：{str(e)}"
+            )
+            
+    if not original_image_bytes:
+        raise HTTPException(status_code=500, detail="無法獲取圖片數據，請檢查輸入。")
+
+    return original_image_bytes, image_mime_type
 # ==========================================================
 # 🚀 API 路由定義
 # ==========================================================
@@ -492,7 +532,55 @@ async def store_generated_images(
             "uploaded_urls": final_urls
         }
 
+@app.post("/edit_image_store", response_model=Dict[str, Any])
+async def edit_image_and_store(
+    request: Request,
+    edit_prompt: str = Form(...),
+    target_index: int = Query(0, ge=0, le=3, 
+                              description="目標圖片索引 (0-3)，用於輸入和儲存的檔案編號"),
+    file: Optional[UploadFile] = File(None)
+):
+    """
+    執行圖片編輯，並將編輯後的 Base64 圖片儲存到 Render Disk 上的目標索引位置。
+    """
+    
+    # 步驟 A: 獲取原始圖片數據 (使用 edit_image 的邏輯)
+    original_bytes, mime_type = await get_image_data_for_editing(request, file, target_index)
 
+    # 步驟 B: 呼叫圖片編輯邏輯
+    try:
+        # 假設 edited_image_data_url 是 data:image/png;base64,... 格式的字串
+        edited_image_data_url = gemini_image_editing(
+            edit_prompt=edit_prompt,
+            original_image_bytes=original_bytes,
+            image_mime_type=mime_type
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"圖片編輯處理失敗: {str(e)}")
+
+    if not edited_image_data_url:
+        raise HTTPException(status_code=500, detail="編輯模型沒有返回有效的圖片數據。")
+
+    # 步驟 C: 儲存編輯後的圖片 (使用 store_generated_images 的邏輯)
+    
+    # 儲存邏輯的輸入是 Base64 字串，所以我們將編輯結果作為輸入
+    image_data_to_store = edited_image_data_url 
+    
+    # 傳入 target_index 確保覆蓋目標檔案 (001.png 到 004.png)
+    stored_url = await save_image_to_disk(image_data_to_store, target_index) 
+
+    if not stored_url:
+        raise HTTPException(status_code=500, detail="Failed to save edited image to persistent disk.")
+
+    # 步驟 D: 最終回傳
+    final_urls = [stored_url]
+
+    return {
+        "message": f"Successfully edited and stored image to disk (Index {target_index}).",
+        "edit_prompt": edit_prompt,
+        "image_url": edited_image_data_url, # 編輯後的 Base64 Data URL
+        "uploaded_urls": final_urls          # 編輯後圖片的公開存取 URL
+    }
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
 async def serve_image_from_disk(filename: str):
     """
