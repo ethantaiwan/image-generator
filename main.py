@@ -372,61 +372,61 @@ def create_kontext_and_generate(payload: KontextAndImageCreate):
 
 @app.post("/edit_image")
 async def edit_image_api(
-    request: Request, # ❗ 修正點 1: 必須傳入 Request 物件來獲取 base_url ❗
+    request: Request,
     edit_prompt: str = Form(...),
-    file: Optional[UploadFile] = File(None), 
-    # 修正點 2: 移除 image_url，改為 target_index
-    target_index: Optional[int] = Query(None, ge=0, le=3, 
-                                        description="要修改的已儲存圖片索引 (0=001.png, 1=002.png, ...)")
+    
+    # 修正點 1: target_index 設為必填 Query 參數，並嚴格限制範圍
+    target_index: int = Query(..., ge=0, le=3, 
+                              description="目標圖片索引 (0=001.png, 1=002.png, ..., 3=004.png)"),
+                              
+    # 修正點 2: file 設為可選 File 參數 (用戶可上傳新圖覆蓋)
+    file: Optional[UploadFile] = File(None)
 ):
     """
-    進行圖片修改。圖片來源可選：直接上傳檔案 或 提供已儲存的圖片索引。
+    進行圖片修改。若傳入檔案，則使用新檔案；若未傳入，則使用 target_index 指定的已存圖片。
     """
     original_image_bytes = None
     image_mime_type = None
-    # 1. 檢查是否同時傳入 file 和 target_index (排他性檢查)
-    if file and file.filename and target_index is not None:
-        raise HTTPException(
-            status_code=400,
-            detail="請選擇其中一種圖片輸入方式：上傳檔案或提供圖片索引，不可同時使用。"
-        )
 
-    # 2. 情況 A: 處理上傳的檔案
+    # 1. 檢查是否有新檔案上傳 (覆蓋邏輯)
     if file and file.filename: 
+        # 情況 A: 使用新上傳的檔案
         original_image_bytes = await file.read()
         image_mime_type = file.content_type or "image/jpeg"
         await file.close()
 
-    # 3. 情況 B: 處理圖片索引 (下載邏輯必須放在這裡)
-    elif target_index is not None:
+    # 2. 檢查是否需要下載已儲存的圖片 (沒有上傳新檔案時的預設邏輯)
+    else:
+        # 情況 B: 使用 target_index 組成的 URL 下載已存圖片
         try:
-            # 這裡放置完整的下載邏輯
+            # 在後端組成完整的 URL
             url_to_fetch = get_full_public_image_url(request, target_index)
             
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(url_to_fetch)
-                response.raise_for_status()
+                response.raise_for_status() # 檢查 4xx/5xx 錯誤
                 
                 original_image_bytes = response.content
                 image_mime_type = response.headers.get("Content-Type", "image/png")
 
         except ValueError as ve:
-            # 處理 get_full_public_image_url 拋出的錯誤
+            # 處理 target_index 不在 0-3 範圍的錯誤 (雖然 Query 已經限制了，作為防禦性編程)
             raise HTTPException(status_code=400, detail=str(ve))
         except Exception as e:
-            # 處理 httpx 下載失敗的錯誤
+            # 下載失敗的錯誤 (例如 Render Disk 上的檔案不存在)
             raise HTTPException(
                 status_code=500,
-                detail=f"無法從已儲存的圖片 URL 下載圖片 (Index {target_index})：{str(e)}"
+                detail=f"無法從已儲存的圖片 (Index {target_index}) 下載圖片。請確認檔案是否存在。錯誤：{str(e)}"
             )
             
-    # 4. 錯誤處理: 既沒有檔案也沒有索引
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="請提供一個要修改的圖片檔案或已儲存圖片的索引 (0-3)。"
-        )
-    
+    # 3. 檢查圖片數據是否存在 (防禦性檢查)
+    if not original_image_bytes:
+        raise HTTPException(status_code=500, detail="無法獲取圖片數據，請檢查輸入。")
+   
+    return {
+    "edit_prompt": edit_prompt,
+    "image_url": edited_image_data_url
+    }
     
 @app.post("/api/store-generated-images", response_model=Dict[str, Any])
 async def store_generated_images(
