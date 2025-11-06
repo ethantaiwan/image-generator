@@ -370,32 +370,41 @@ def create_kontext_and_generate(payload: KontextAndImageCreate):
    #     raise HTTPException(status_code=500, detail=f"Image editing failed: {str(e)}")
 
 
-@app.post("/edit_image")
+
+# 假設所有輔助函式 (get_full_public_image_url, gemini_image_editing) 已經定義在其他地方
+@app.post("/edit_image", response_model=Dict[str, Any])
 async def edit_image_api(
     request: Request,
     edit_prompt: str = Form(...),
     
-    # 修正點 1: target_index 設為必填 Query 參數，並嚴格限制範圍
-    target_index: int = Query(..., ge=0, le=3, 
+    # target_index 設為必填 Query 參數
+    target_index: int = Query(..., ge=0, le=3,
                               description="目標圖片索引 (0=001.png, 1=002.png, ..., 3=004.png)"),
                               
-    # 修正點 2: file 設為可選 File 參數 (用戶可上傳新圖覆蓋)
+    # file 設為可選 File 參數
     file: Optional[UploadFile] = File(None)
 ):
     """
     進行圖片修改。若傳入檔案，則使用新檔案；若未傳入，則使用 target_index 指定的已存圖片。
     """
+    # 變數初始化 (解決 name '...' is not defined 錯誤)
     original_image_bytes = None
     image_mime_type = None
+    edited_image_data_url = None # 初始化最終結果變數
 
-    # 1. 檢查是否有新檔案上傳 (覆蓋邏輯)
-    if file and file.filename: 
+    # --- 1. 檢查並處理上傳檔案 (優先級最高) ---
+    
+    # 檢查 file 是否存在且有檔名 (file.filename 檢查可以排除空字串的上傳，但仍需客戶端配合)
+    if file and file.filename:
         # 情況 A: 使用新上傳的檔案
-        original_image_bytes = await file.read()
-        image_mime_type = file.content_type or "image/jpeg"
-        await file.close()
+        try:
+            original_image_bytes = await file.read()
+            image_mime_type = file.content_type or "image/jpeg"
+            await file.close()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"讀取上傳檔案時發生錯誤: {str(e)}")
 
-    # 2. 檢查是否需要下載已儲存的圖片 (沒有上傳新檔案時的預設邏輯)
+    # --- 2. 處理下載已儲存的圖片 (沒有上傳新檔案時的預設邏輯) ---
     else:
         # 情況 B: 使用 target_index 組成的 URL 下載已存圖片
         try:
@@ -410,8 +419,8 @@ async def edit_image_api(
                 image_mime_type = response.headers.get("Content-Type", "image/png")
 
         except ValueError as ve:
-            # 處理 target_index 不在 0-3 範圍的錯誤 (雖然 Query 已經限制了，作為防禦性編程)
-            raise HTTPException(status_code=400, detail=str(ve))
+            # 處理 target_index 範圍錯誤
+            raise HTTPException(status_code=400, detail=f"圖片索引錯誤: {str(ve)}")
         except Exception as e:
             # 下載失敗的錯誤 (例如 Render Disk 上的檔案不存在)
             raise HTTPException(
@@ -419,13 +428,29 @@ async def edit_image_api(
                 detail=f"無法從已儲存的圖片 (Index {target_index}) 下載圖片。請確認檔案是否存在。錯誤：{str(e)}"
             )
             
-    # 3. 檢查圖片數據是否存在 (防禦性檢查)
+    # --- 3. 呼叫圖片編輯邏輯 ---
     if not original_image_bytes:
-        raise HTTPException(status_code=500, detail="無法獲取圖片數據，請檢查輸入。")
-   
+        # 如果走到這裡，表示所有圖片獲取途徑都失敗了
+        raise HTTPException(status_code=500, detail="無法獲取圖片數據，請檢查輸入或圖片是否存在。")
+        
+    try:
+        # ❗ 假設 gemini_image_editing 是一個同步函式 ❗
+        edited_image_data_url = gemini_image_editing(
+            edit_prompt=edit_prompt,
+            original_image_bytes=original_image_bytes,
+            image_mime_type=image_mime_type
+        )
+    except Exception as e:
+        # 捕捉 gemini_image_editing 內部錯誤
+        raise HTTPException(status_code=500, detail=f"圖片編輯處理失敗: {str(e)}")
+
+    # --- 4. 最終返回 ---
+    if not edited_image_data_url:
+        raise HTTPException(status_code=500, detail="編輯模型沒有返回有效的圖片數據。")
+
     return {
-    "edit_prompt": edit_prompt,
-    "image_url": edited_image_data_url
+        "edit_prompt": edit_prompt,
+        "image_url": edited_image_data_url
     }
     
 @app.post("/api/store-generated-images", response_model=Dict[str, Any])
