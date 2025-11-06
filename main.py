@@ -206,10 +206,10 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         return None
 # 數據模型 (Pydantic)
 class KontextAndImageCreate(BaseModel):
-    user_id: str
-    character_name: str
+    user_id: Optional[str] = ""
+    character_name: Optional[str] = ""
     description: str
-    base_prompt: Optional[str] = None
+    base_prompt: Optional[str] = ""
     image_count: int = 1 # 由於 generate_content 限制，這裡預設改為 1
 
 class ImageBatchResponse(BaseModel):
