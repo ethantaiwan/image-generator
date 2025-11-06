@@ -592,7 +592,7 @@ async def generate_image_store(
                                     description="生成的圖片開始儲存的索引 (0=001.png, 1=002.png)")
 ):
     """
-    執行圖片生成，並將生成的圖片儲存到 Render 磁碟上，從 target_start_index 開始覆蓋。
+    執行圖片生成，並將生成的圖片儲存到 Render 磁碟上，從 target_index 開始覆蓋。
     """
     ##
         # 組合提示詞
@@ -628,7 +628,7 @@ async def generate_image_store(
          
     # --- 3. 最終回傳 ---
     return {
-        "message": f"Successfully generated and stored {len(final_urls)} images, starting from index {target_start_index}.",
+        "message": f"Successfully generated and stored {len(final_urls)} images, starting from index {target_index}.",
         "full_prompt": full_prompt,
         "image_urls": images,      
         "uploaded_urls": final_urls 
