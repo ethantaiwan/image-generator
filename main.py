@@ -594,10 +594,12 @@ async def generate_image_store(
     """
     執行圖片生成，並將生成的圖片儲存到 Render 磁碟上，從 target_start_index 開始覆蓋。
     """
-    
-    # --- 1. 圖片生成 (邏輯保持不變) ---
+    ##
+        # 組合提示詞
     base_prompt = payload.base_prompt if payload.base_prompt else ""
     full_prompt = f"{payload.description}. {base_prompt}"
+    
+    # 獲取 Base64 Data URLs
     images = gemini_image_generation(full_prompt, count=payload.image_count)
 
     if not images:
@@ -606,35 +608,21 @@ async def generate_image_store(
             detail="Gemini generation failed or no image data returned."
         )
 
-    # 限制儲存數量，最多為 MAX_IMAGES (4)
-    images_to_store = images[:MAX_IMAGES]
-    
-    # --- 2. 儲存圖片到持久性磁碟 (修正儲存索引邏輯) ---
-    
-    upload_tasks = []
-    
-    # ❗ 修正點 2: 使用 target_start_index 作為起始索引 ❗
-    for i, img_data in enumerate(images_to_store):
-        # 最終儲存的索引是 (起始索引 + 迴圈索引)
-        target_disk_index = target_start_index + i
-        
-        # 檢查是否超出最大允許的檔案數量 (0 到 3)
-        if target_disk_index >= MAX_IMAGES: 
-            break 
-            
-        # 呼叫 save_image_to_disk，傳入計算後的索引
-        task = save_image_to_disk(img_data, target_disk_index)
-        upload_tasks.append(task)
-
-    # ... (後續的 asyncio.gather 和回傳邏輯保持不變) ...
     try:
-        stored_urls = await asyncio.run(asyncio.gather(*upload_tasks)) 
+        # 儲存邏輯的輸入是 Base64 字串，所以我們將編輯結果作為輸入
+        image_data_to_store = images[0]
         
+        # 傳入 target_index 確保覆蓋目標檔案 (001.png 到 004.png)
+        stored_url = await save_image_to_disk(image_data_to_store, target_index) 
+    
+        if not stored_url:
+            raise HTTPException(status_code=500, detail="Failed to save edited image to persistent disk.")
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"圖片儲存到磁碟失敗: {str(e)}")
 
-    final_urls = [url for url in stored_urls if url]
-    
+    final_urls = [stored_url]        
+
     if not final_urls:
          raise HTTPException(status_code=500, detail="圖片已生成，但儲存到磁碟全部失敗。")
          
