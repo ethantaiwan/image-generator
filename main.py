@@ -628,7 +628,7 @@ async def generate_image_store(
 
     # ... (後續的 asyncio.gather 和回傳邏輯保持不變) ...
     try:
-        stored_urls = asyncio.run(asyncio.gather(*upload_tasks)) 
+        stored_urls = await asyncio.run(asyncio.gather(*upload_tasks)) 
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"圖片儲存到磁碟失敗: {str(e)}")
