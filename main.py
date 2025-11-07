@@ -12,6 +12,7 @@ import re
 import io
 import asyncio
 import httpx # 確保 httpx 已安裝並導入
+from fastapi import Body
 
 # --- 環境變數設定和初始化 ---
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
@@ -184,7 +185,12 @@ class GeneratorOutput(BaseModel):
     class Config:
         extra = "allow"
 
-
+class ExtractThenGenerateOut(BaseModel):
+    forward_body: Dict[str, Any]
+    generate_result: Dict[str, Any]
+    uploaded_urls_flat: List[str]
+    n_prompts: int
+    images_per_prompt: int
 
 # --- 輔助函式：JSON 圖片字串提取 (根據您的要求) ---
 def get_full_public_image_url(request: Request, index: int) -> str:
@@ -858,6 +864,72 @@ async def extract_image_prompts(payload: ExtractIn):
         start_index=payload.start_index,
         naming=payload.naming,
         forward_body=forward,
+    )
+
+@app.post("/extract_then_generate", response_model=ExtractThenGenerateOut)
+async def extract_then_generate(payload: ExtractIn = Body(...)):
+    # 1) 解析腳本文字 → prompts[]
+    text = (payload.result or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="result 內容為空，無法解析 image_prompt")
+    prompts = parse_image_prompts(text)
+    if not prompts:
+        raise HTTPException(status_code=422, detail="找不到任何 image_prompt 內容")
+
+    # 2) 組 forward_body 並驗證
+    forward = {
+        "prompts": prompts,
+        "images_per_prompt": payload.images_per_prompt,
+        "start_index": payload.start_index,
+        "naming": payload.naming,
+    }
+    validate_forward_body(forward)  # 不合法會直接拋 422
+
+    # 3) 自動呼叫 /generate_images_from_prompts
+    #    優先走本機回呼（Render 上用 $PORT），避免外網 DNS/防火牆問題
+    port = os.getenv("PORT", "8000")
+    gen_url = f"http://127.0.0.1:{port}/generate_images_from_prompts"
+
+    try:
+        timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(gen_url, json=forward)
+            # 若下游回 4xx/5xx，raise_for_status 會丟 httpx.HTTPStatusError
+            resp.raise_for_status()
+            gen_result = resp.json()
+    except httpx.HTTPStatusError as e:
+        # 下游 API 有回應但非 2xx，傳回下游的狀態碼 & 訊息
+        status = e.response.status_code
+        detail = None
+        try:
+            detail = e.response.json()
+        except Exception:
+            detail = e.response.text
+        # 502 比較合理地代表「上游代理呼叫下游失敗/下游拒絕」
+        raise HTTPException(status_code=status if status < 500 else 502,
+                            detail={"downstream_error": detail})
+    except httpx.ConnectTimeout:
+        raise HTTPException(status_code=504, detail="連線下游生成服務逾時（connect timeout）")
+    except httpx.ReadTimeout:
+        raise HTTPException(status_code=504, detail="下游生成服務讀取逾時（read timeout）")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"呼叫下游生成服務失敗: {e}")
+
+    # 4) 萃取所有 URL（平面化，方便前端直接用）
+    uploaded_flat: List[str] = []
+    try:
+        for item in gen_result.get("results", []):
+            uploaded_flat.extend(item.get("uploaded_urls", []))
+    except Exception:
+        # 保護性處理：即使結構不同也不中斷回傳
+        pass
+
+    return ExtractThenGenerateOut(
+        forward_body=forward,
+        generate_result=gen_result,
+        uploaded_urls_flat=uploaded_flat,
+        n_prompts=len(prompts),
+        images_per_prompt=payload.images_per_prompt
     )
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
 async def serve_image_from_disk(filename: str):
