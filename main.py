@@ -707,7 +707,7 @@ async def generate_image_store(
     }
 
 
-@router.post("/generate_images_from_prompts", response_model=Dict[str, Any])
+@app.post("/generate_images_from_prompts", response_model=Dict[str, Any])
 async def generate_images_from_prompts(payload: BatchPromptsPayload):
     if not payload.prompts:
         raise HTTPException(status_code=400, detail="prompts cannot be empty")
