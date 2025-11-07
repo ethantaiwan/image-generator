@@ -12,6 +12,8 @@ import re
 import io
 import asyncio
 import httpx # 確保 httpx 已安裝並導入
+from routes_extract import router as extract_router
+from routes_generate import router as gen_router  # 你 generate_images_from_prompts 在這
 
 # --- 環境變數設定和初始化 ---
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
@@ -74,7 +76,8 @@ MODEL_NAME = os.getenv("model_name")
 #    print("API 連線失敗:", e)
 # --- FastAPI 應用初始化 ---
 app = FastAPI()
-
+app.include_router(extract_router)
+app.include_router(gen_router)
 # --- CORS 中間件配置 (解決前端 'Failed to fetch' 問題) ---
 origins = ["*"] # 允許所有來源 (用於測試)
 app.add_middleware(
@@ -799,7 +802,7 @@ async def generate_image_store(
     }
 
 
-@app.post("/generate_images_from_prompts", response_model=Dict[str, Any])
+@router.post("/generate_images_from_prompts", response_model=Dict[str, Any])
 async def generate_images_from_prompts(payload: BatchPromptsPayload):
     if not payload.prompts:
         raise HTTPException(status_code=400, detail="prompts cannot be empty")
@@ -846,7 +849,7 @@ async def generate_images_from_prompts(payload: BatchPromptsPayload):
         "start_index": payload.start_index,
         "results": results  # per-scene 詳細
     }
-@app.post("/extract_image_prompts", response_model=ExtractedPromptsResponse)
+@router.post("/extract_image_prompts", response_model=ExtractedPromptsResponse)
 async def extract_image_prompts(payload: ScriptPayload):
     text = payload.result
     if not text or not text.strip():
