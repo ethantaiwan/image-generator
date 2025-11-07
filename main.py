@@ -12,8 +12,6 @@ import re
 import io
 import asyncio
 import httpx # 確保 httpx 已安裝並導入
-from routes_extract import router as extract_router
-from routes_generate import router as gen_router  # 你 generate_images_from_prompts 在這
 
 # --- 環境變數設定和初始化 ---
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
@@ -284,10 +282,6 @@ def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
             dedup.append(u)
     return dedup[:count]
 
-from google.genai import types
-import base64
-from typing import List, Optional
-
 # 假設 client 和 MODEL_NAME="gemini-2.5-flash-image-preview" 已經定義
 
 def gemini_image_editing(
@@ -430,80 +424,45 @@ async def process_one_prompt(prompt: str,
 
     return result
 
-# -- 解析工具：從大段文字中取出所有 image_prompt 字串 --
+# --- 解析工具：從大段文字中取出所有 image_prompt 的內容 ---
 def parse_image_prompts(text: str) -> List[str]:
-    """
-    支援以下寫法（大小寫/空白/底線/全形符號彈性）：
-    - image_prompt：
-    - image prompt:
-    - image_prompt（可直接用於文生圖模型）：
-    之後可能接著：
-      - 單行或多行的條列（以 - 開頭）
-      - 直接一行文字
-      - 中文引號「...」包住的文字
-    解析到下一個空白行、或下一個 Scene 開頭、或下一個數字段落 1) 2) 即停止。
-    """
-    # 標記位置：找到每個 image_prompt 標題的起始點
-    # 說明：image 後可接 '_' 或空白；prompt 前後允許空白；冒號支援半形/全形
-    marker = re.compile(
-        r'(?i)(image[\s_]*prompt.*?)[:：]\s*',  # 標題本體
-        flags=re.DOTALL,
-    )
+    text = text.replace('\r\n', '\n')
 
-    # 停止條件：下一段場景或段落的常見開頭
+    # 支援 image_prompt / image prompt，多種冒號（:：），大小寫與附註都可
+    marker = re.compile(r'(?i)(image[\s_]*prompt.*?)[:：]\s*', flags=re.DOTALL)
+
+    # 遇到 Scene/段落編號/空白段時停止蒐集
     stop_line = re.compile(
         r'^\s*(?:Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]\)|[一二三四五六七八九十]\.)',
         flags=re.IGNORECASE
     )
 
-    # 先把換行統一
-    text = text.replace('\r\n', '\n')
-
     prompts: List[str] = []
     for m in marker.finditer(text):
         start = m.end()
-        # 從 start 開始往後抓，直到遇到空白段落、Scene 標頭、或段落編號
-        # 先取出「從 start 到下個 marker 或文末」的大塊，再行內切
         next_m = marker.search(text, pos=start)
         chunk = text[start: next_m.start()] if next_m else text[start:]
-
-        # 行切割
         lines = chunk.split('\n')
 
         buf: List[str] = []
         for line in lines:
-            # 碰到空白行或停止條件就結束這個 image_prompt 的蒐集
             if not line.strip():
                 break
             if stop_line.match(line):
                 break
 
-            # 清掉條列 dash、前後空白
             cleaned = re.sub(r'^\s*[-–—]\s*', '', line).strip()
-
-            # 若有中文引號「...」或西文引號"..."，以引號內優先
-            # 先找中文全形引號
-            m_quote = re.search(r'「(.+?)」', cleaned)
+            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
             if m_quote:
                 cleaned = m_quote.group(1).strip()
-            else:
-                # 再找英文引號（盡量保守避免吃到跨行）
-                m_quote_en = re.search(r'"([^"]+)"', cleaned)
-                if m_quote_en:
-                    cleaned = m_quote_en.group(1).strip()
 
             if cleaned:
                 buf.append(cleaned)
 
         if not buf:
-            # 若沒有行被蒐集，表示 image_prompt 後面可能空的或被審核拿掉
-            # 這裡就跳過，不要塞空字串
             continue
 
-        # 有些人會把一整句拆多行，我們把它們合併
-        merged = ' '.join(buf)
-        # 去掉重複空白
-        merged = re.sub(r'\s+', ' ', merged).strip()
+        merged = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
         if merged:
             prompts.append(merged)
 
@@ -802,7 +761,7 @@ async def generate_image_store(
     }
 
 
-@router.post("/generate_images_from_prompts", response_model=Dict[str, Any])
+@app.post("/generate_images_from_prompts", response_model=Dict[str, Any])
 async def generate_images_from_prompts(payload: BatchPromptsPayload):
     if not payload.prompts:
         raise HTTPException(status_code=400, detail="prompts cannot be empty")
@@ -849,30 +808,28 @@ async def generate_images_from_prompts(payload: BatchPromptsPayload):
         "start_index": payload.start_index,
         "results": results  # per-scene 詳細
     }
-@router.post("/extract_image_prompts", response_model=ExtractedPromptsResponse)
-async def extract_image_prompts(payload: ScriptPayload):
-    text = payload.result
-    if not text or not text.strip():
+@app.post("/extract_image_prompts", response_model=ExtractOut)
+async def extract_image_prompts(payload: ExtractIn):
+    text = (payload.result or "").strip()
+    if not text:
         raise HTTPException(status_code=400, detail="result 內容為空，無法解析 image_prompt")
 
     prompts = parse_image_prompts(text)
     if not prompts:
-        # 你也可以選擇回傳 200 但 prompts=[]；這裡明確提示方便除錯
         raise HTTPException(status_code=422, detail="找不到任何 image_prompt 內容")
 
-    # 打包成可直接丟給 /generate_images_from_prompts 的 body
     forward = {
         "prompts": prompts,
         "images_per_prompt": payload.images_per_prompt,
         "start_index": payload.start_index,
-        "naming": payload.naming
+        "naming": payload.naming,
     }
-    return ExtractedPromptsResponse(
+    return ExtractOut(
         prompts=prompts,
         images_per_prompt=payload.images_per_prompt,
         start_index=payload.start_index,
         naming=payload.naming,
-        forward_body=forward
+        forward_body=forward,
     )
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
 async def serve_image_from_disk(filename: str):
