@@ -585,45 +585,51 @@ async def edit_image_and_store(
 @app.post("/generate_image_store", response_model=Dict[str, Any])
 async def generate_image_store(
     payload: KontextAndImageCreate,
-    target_index: int = Query(0, ge=0, le=(MAX_IMAGES - 1),
-                              description="生成的圖片開始儲存的索引 (0=001.png, 1=002.png)")
+    # ❗ 修正點 1: 新增起始索引參數 ❗
+    target_index: int = Query(0, ge=0, le=(MAX_IMAGES - 1), 
+                                    description="生成的圖片開始儲存的索引 (0=001.png, 1=002.png)")
 ):
     """
-    一次生成 payload.image_count 張，並自 target_index 起依序存檔。
+    執行圖片生成，並將生成的圖片儲存到 Render 磁碟上，從 target_index 開始覆蓋。
     """
-    # 1) 組合提示詞
-    base_prompt = payload.base_prompt or ""
-    full_prompt = f"{payload.description}. {base_prompt}".strip()
+    ##
+        # 組合提示詞
+    base_prompt = payload.base_prompt if payload.base_prompt else ""
+    full_prompt = f"{payload.description}. {base_prompt}"
+    
+    # 獲取 Base64 Data URLs
+    images = gemini_image_generation(full_prompt, count=payload.image_count)
 
-    # 2) 一次向模型索取 N 張（避免前端多次呼叫）
-    images: List[str] = gemini_image_generation(full_prompt, count=payload.image_count)
     if not images:
-        raise HTTPException(status_code=500, detail="Gemini generation failed or no image data returned.")
+        raise HTTPException(
+            status_code=500,
+            detail="Gemini generation failed or no image data returned."
+        )
 
-    uploaded_urls: List[str] = []
-    errors: List[str] = []
+    try:
+        # 儲存邏輯的輸入是 Base64 字串，所以我們將編輯結果作為輸入
+        image_data_to_store = images[0]
+        
+        # 傳入 target_index 確保覆蓋目標檔案 (001.png 到 004.png)
+        stored_url = await save_image_to_disk(image_data_to_store, target_index) 
+    
+        if not stored_url:
+            raise HTTPException(status_code=500, detail="Failed to save edited image to persistent disk.")
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"圖片儲存到磁碟失敗: {str(e)}")
 
-    # 3) 依序存檔（從 target_index 起），超出 MAX_IMAGES 就停止或改為循環覆寫
-    save_count = min(len(images), MAX_IMAGES - target_index)
-    for i in range(save_count):
-        idx = target_index + i
-        try:
-            stored_url = await save_image_to_disk(images[i], idx)
-            if not stored_url:
-                raise RuntimeError("save_image_to_disk returned empty url")
-            uploaded_urls.append(stored_url)
-        except Exception as e:
-            errors.append(f"index {idx}: {str(e)}")
+    final_urls = [stored_url]        
 
-    if not uploaded_urls:
-        raise HTTPException(status_code=500, detail=f"圖片生成成功，但存檔全部失敗：{'; '.join(errors)}")
-
+    if not final_urls:
+         raise HTTPException(status_code=500, detail="圖片已生成，但儲存到磁碟全部失敗。")
+         
+    # --- 3. 最終回傳 ---
     return {
-        "message": f"Generated {len(images)} images; stored {len(uploaded_urls)} starting from index {target_index}.",
+        "message": f"Successfully generated and stored {len(final_urls)} images, starting from index {target_index}.",
         "full_prompt": full_prompt,
-        "image_urls": images,       # base64 / data URL（如果你要給 B 頁預覽）
-        "uploaded_urls": uploaded_urls,
-        "errors": errors
+        "image_urls": images,      
+        "uploaded_urls": final_urls 
     }
 
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
