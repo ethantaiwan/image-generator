@@ -95,6 +95,65 @@ PUBLIC_URL_PREFIX = "/image-uploads/temp/"
 # 請將這裡替換成您實際部署 image-generator 的 API 地址
 REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/api/image-generator" 
 
+# --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
+# 數據模型 (Pydantic)
+class KontextAndImageCreate(BaseModel):
+    user_id: Optional[str] = ""
+    character_name: Optional[str] = ""
+    description: str
+    base_prompt: Optional[str] = ""
+    image_count: int = 1 # 由於 generate_content 限制，這裡預設改為 1
+
+class ImageBatchResponse(BaseModel):
+    full_prompt: str
+    image_urls: List[str]
+
+class ScriptPayload(BaseModel):
+    # 你前端丟來的 JSON，其中 result 是大段腳本文字
+    result: str = Field(..., description="整段 storyboard 文字，內含多個 image_prompt 區塊")
+    # 給後續生成 API 用的預設參數（可省略，這裡提供方便直接串接）
+    images_per_prompt: int = Field(1, ge=1)
+    start_index: int = Field(0, ge=0)
+    naming: Literal["scene", "sequence"] = "scene"
+    
+class ExtractIn(BaseModel):
+    result: str = Field(..., description="整段 storyboard 文字，內含多個 image_prompt 區塊")
+    images_per_prompt: int = Field(1, ge=1)
+    start_index: int = Field(0, ge=0)
+    naming: Literal["scene", "sequence"] = "scene"
+
+class ExtractOut(BaseModel):
+    prompts: List[str]
+    images_per_prompt: int
+    start_index: int
+    naming: Literal["scene", "sequence"]
+    forward_body: Dict[str, Any]
+
+class ExtractedPromptsResponse(BaseModel):
+    prompts: List[str]
+    images_per_prompt: int
+    start_index: int
+    naming: Literal["scene", "sequence"]
+    forward_body: Dict[str, Any]  # 直接 POST 給 /generate_images_from_prompts 的 body
+    
+class BatchPromptsPayload(BaseModel):
+    prompts: List[str]
+    images_per_prompt: int = 1
+    start_index: int = 0
+    naming: str = "scene"  # "scene" | "sequence"
+
+class GeneratorOutput(BaseModel):
+    """用於接收您的生成 API 輸出的 JSON 結構"""
+    full_prompt: Optional[str] = None 
+    edit_prompt: Optional[str] = None
+    image_url: Optional[str] = None 
+    image_urls: Optional[List[str]] = None 
+    
+    # 允許模型接收未在上面明確定義的其他額外鍵值
+    class Config:
+        extra = "allow"
+
+
 
 # --- 輔助函式：JSON 圖片字串提取 (根據您的要求) ---
 def get_full_public_image_url(request: Request, index: int) -> str:
@@ -157,37 +216,7 @@ def find_image_strings(obj: Union[Dict, List]) -> List[str]:
     
     return found
 
-# --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
-class ScriptPayload(BaseModel):
-    # 你前端丟來的 JSON，其中 result 是大段腳本文字
-    result: str = Field(..., description="整段 storyboard 文字，內含多個 image_prompt 區塊")
-    # 給後續生成 API 用的預設參數（可省略，這裡提供方便直接串接）
-    images_per_prompt: int = Field(1, ge=1)
-    start_index: int = Field(0, ge=0)
-    naming: Literal["scene", "sequence"] = "scene"
 
-class ExtractedPromptsResponse(BaseModel):
-    prompts: List[str]
-    images_per_prompt: int
-    start_index: int
-    naming: Literal["scene", "sequence"]
-    forward_body: Dict[str, Any]  # 直接 POST 給 /generate_images_from_prompts 的 body
-class BatchPromptsPayload(BaseModel):
-    prompts: List[str]
-    images_per_prompt: int = 1
-    start_index: int = 0
-    naming: str = "scene"  # "scene" | "sequence"
-
-class GeneratorOutput(BaseModel):
-    """用於接收您的生成 API 輸出的 JSON 結構"""
-    full_prompt: Optional[str] = None 
-    edit_prompt: Optional[str] = None
-    image_url: Optional[str] = None 
-    image_urls: Optional[List[str]] = None 
-    
-    # 允許模型接收未在上面明確定義的其他額外鍵值
-    class Config:
-        extra = "allow"
 # --- 圖片儲存邏輯 ---
 
 async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
@@ -223,17 +252,6 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         print(f"Error Details: {e}")
         print("-----------------------")
         return None
-# 數據模型 (Pydantic)
-class KontextAndImageCreate(BaseModel):
-    user_id: Optional[str] = ""
-    character_name: Optional[str] = ""
-    description: str
-    base_prompt: Optional[str] = ""
-    image_count: int = 1 # 由於 generate_content 限制，這裡預設改為 1
-
-class ImageBatchResponse(BaseModel):
-    full_prompt: str
-    image_urls: List[str]
 
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
 def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
