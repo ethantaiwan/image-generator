@@ -471,7 +471,29 @@ async def process_one_prompt(prompt: str,
 
     return result
 
+# validate extract_image_prompts 
+def validate_forward_body(body: dict):
+    required_keys = ["prompts", "images_per_prompt", "start_index", "naming"]
+    for key in required_keys:
+        if key not in body:
+            raise HTTPException(status_code=422, detail=f"forward_body 缺少 {key}")
 
+    if not isinstance(body["prompts"], list) or not body["prompts"]:
+        raise HTTPException(status_code=422, detail="prompts 必須是非空的字串陣列")
+
+    if not all(isinstance(p, str) and p.strip() for p in body["prompts"]):
+        raise HTTPException(status_code=422, detail="prompts 中包含空字串或非字串")
+
+    if not isinstance(body["images_per_prompt"], int) or body["images_per_prompt"] < 1:
+        raise HTTPException(status_code=422, detail="images_per_prompt 必須為正整數")
+
+    if not isinstance(body["start_index"], int) or body["start_index"] < 0:
+        raise HTTPException(status_code=422, detail="start_index 必須為非負整數")
+
+    if body["naming"] not in ("scene", "sequence"):
+        raise HTTPException(status_code=422, detail="naming 只能是 'scene' 或 'sequence'")
+
+    return True
 # ==========================================================
 # 🚀 API 路由定義
 # ==========================================================
@@ -827,6 +849,9 @@ async def extract_image_prompts(payload: ExtractIn):
         "start_index": payload.start_index,
         "naming": payload.naming,
     }
+    # ✅ 在這裡檢查 forward_body 是否可用於 generate_images_from_prompts
+    validate_forward_body(forward)
+    
     return ExtractOut(
         prompts=prompts,
         images_per_prompt=payload.images_per_prompt,
