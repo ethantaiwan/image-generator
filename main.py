@@ -74,8 +74,6 @@ MODEL_NAME = os.getenv("model_name")
 #    print("API 連線失敗:", e)
 # --- FastAPI 應用初始化 ---
 app = FastAPI()
-app.include_router(extract_router)
-app.include_router(gen_router)
 # --- CORS 中間件配置 (解決前端 'Failed to fetch' 問題) ---
 origins = ["*"] # 允許所有來源 (用於測試)
 app.add_middleware(
