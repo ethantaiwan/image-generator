@@ -1,12 +1,12 @@
 # main.py
 from fastapi import FastAPI, HTTPException, Request, Query, APIRouter, Form, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
 from google import genai
 from google.genai import types
 import json, os
 import base64
 import uuid
+from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Union, Optional, Literal
 import re
 import io
@@ -25,7 +25,6 @@ if not GOOGLE_API_KEY:
 # --- FastAPI 和 Pydantic 相關匯入 ---
 
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 # --- Gemini API 相關匯入 ---
 from google import genai
@@ -95,6 +94,38 @@ PUBLIC_URL_PREFIX = "/image-uploads/temp/"
 # 請將這裡替換成您實際部署 image-generator 的 API 地址
 REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/api/image-generator" 
 
+
+def parse_image_prompts(text: str) -> List[str]:
+    text = text.replace('\r\n', '\n')
+    marker = re.compile(r'(?i)(image[\s_]*prompt.*?)[:：]\s*', flags=re.DOTALL)
+    stop_line = re.compile(
+        r'^\s*(?:Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]\)|[一二三四五六七八九十]\.)',
+        flags=re.IGNORECASE
+    )
+    prompts: List[str] = []
+    for m in marker.finditer(text):
+        start = m.end()
+        next_m = marker.search(text, pos=start)
+        chunk = text[start: next_m.start()] if next_m else text[start:]
+        lines = chunk.split('\n')
+        buf: List[str] = []
+        for line in lines:
+            if not line.strip():
+                break
+            if stop_line.match(line):
+                break
+            cleaned = re.sub(r'^\s*[-–—]\s*', '', line).strip()
+            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
+            if m_quote:
+                cleaned = m_quote.group(1).strip()
+            if cleaned:
+                buf.append(cleaned)
+        if not buf:
+            continue
+        merged = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
+        if merged:
+            prompts.append(merged)
+    return prompts
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
 # 數據模型 (Pydantic)
 class KontextAndImageCreate(BaseModel):
@@ -440,49 +471,7 @@ async def process_one_prompt(prompt: str,
 
     return result
 
-# --- 解析工具：從大段文字中取出所有 image_prompt 的內容 ---
-def parse_image_prompts(text: str) -> List[str]:
-    text = text.replace('\r\n', '\n')
 
-    # 支援 image_prompt / image prompt，多種冒號（:：），大小寫與附註都可
-    marker = re.compile(r'(?i)(image[\s_]*prompt.*?)[:：]\s*', flags=re.DOTALL)
-
-    # 遇到 Scene/段落編號/空白段時停止蒐集
-    stop_line = re.compile(
-        r'^\s*(?:Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]\)|[一二三四五六七八九十]\.)',
-        flags=re.IGNORECASE
-    )
-
-    prompts: List[str] = []
-    for m in marker.finditer(text):
-        start = m.end()
-        next_m = marker.search(text, pos=start)
-        chunk = text[start: next_m.start()] if next_m else text[start:]
-        lines = chunk.split('\n')
-
-        buf: List[str] = []
-        for line in lines:
-            if not line.strip():
-                break
-            if stop_line.match(line):
-                break
-
-            cleaned = re.sub(r'^\s*[-–—]\s*', '', line).strip()
-            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
-            if m_quote:
-                cleaned = m_quote.group(1).strip()
-
-            if cleaned:
-                buf.append(cleaned)
-
-        if not buf:
-            continue
-
-        merged = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
-        if merged:
-            prompts.append(merged)
-
-    return prompts
 # ==========================================================
 # 🚀 API 路由定義
 # ==========================================================
@@ -829,11 +818,9 @@ async def extract_image_prompts(payload: ExtractIn):
     text = (payload.result or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="result 內容為空，無法解析 image_prompt")
-
     prompts = parse_image_prompts(text)
     if not prompts:
         raise HTTPException(status_code=422, detail="找不到任何 image_prompt 內容")
-
     forward = {
         "prompts": prompts,
         "images_per_prompt": payload.images_per_prompt,
