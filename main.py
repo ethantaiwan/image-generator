@@ -159,6 +159,13 @@ def find_image_strings(obj: Union[Dict, List]) -> List[str]:
     return found
 
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
+
+class BatchPromptsPayload(BaseModel):
+    prompts: List[str]
+    images_per_prompt: int = 1
+    start_index: int = 0
+    naming: str = "scene"  # "scene" | "sequence"
+
 class GeneratorOutput(BaseModel):
     """用於接收您的生成 API 輸出的 JSON 結構"""
     full_prompt: Optional[str] = None 
@@ -339,6 +346,73 @@ async def get_image_data_for_editing(
         raise HTTPException(status_code=500, detail="無法獲取圖片數據，請檢查輸入。")
 
     return original_image_bytes, image_mime_type
+
+async def with_backoff(coro_func, *args, max_retries=4, base_delay=0.2, **kwargs):
+    attempt = 0
+    while True:
+        try:
+            return await coro_func(*args, **kwargs)
+        except Exception as e:
+            # 這裡可判斷 e 是否為 429/5xx 再重試；範例簡化直接重試
+            if attempt >= max_retries:
+                raise
+            await asyncio.sleep(base_delay * (2 ** attempt))
+            attempt += 1
+
+# 包一層方便替換生成器（同步/非同步都能接）
+async def generate_images(prompt: str, count: int) -> List[str]:
+    # 若 gemini_image_generation 是同步，請用 to_thread 包裝：
+    # return await asyncio.to_thread(gemini_image_generation, prompt, count)
+    return await with_backoff(asyncio.to_thread, gemini_image_generation, prompt, count)
+
+# 產一個 prompt 的多張並存檔
+async def process_one_prompt(prompt: str,
+                             scene_idx: int,
+                             images_per_prompt: int,
+                             naming: str,
+                             seq_offset: int,
+                             sem: asyncio.Semaphore) -> Dict[str, Any]:
+    result = {
+        "prompt_index": scene_idx,
+        "prompt": prompt,
+        "uploaded_urls": [],
+        "previews": [],
+        "errors": []
+    }
+    async with sem:
+        try:
+            images = await generate_images(prompt, images_per_prompt)
+        except Exception as e:
+            result["errors"].append(f"generation failed: {e}")
+            return result
+
+    # 存檔
+    for j, img in enumerate(images, start=1):
+        try:
+            if naming == "scene":
+                # scene01_01.png
+                scene_no = scene_idx + 1
+                fname = f"scene{scene_no:02d}_{j:02d}.png"
+                if 'save_image_to_disk_named' in globals():
+                    url = await save_image_to_disk_named(img, fname)
+                else:
+                    # 若沒有 named 儲存，就轉回線性索引
+                    linear_idx = seq_offset + (scene_idx * images_per_prompt) + (j - 1)
+                    url = await save_image_to_disk(img, linear_idx)
+            else:
+                # sequence: 001.png, 002.png, ...
+                linear_idx = seq_offset + (scene_idx * images_per_prompt) + (j - 1)
+                url = await save_image_to_disk(img, linear_idx)
+
+            if not url:
+                raise RuntimeError("empty url from saver")
+
+            result["uploaded_urls"].append(url)
+            result["previews"].append(img)  # base64，可選：前端先用預覽再 lazy 換 URL
+        except Exception as e:
+            result["errors"].append(f"save failed (img {j}): {e}")
+
+    return result
 # ==========================================================
 # 🚀 API 路由定義
 # ==========================================================
@@ -630,6 +704,55 @@ async def generate_image_store(
         "full_prompt": full_prompt,
         "image_urls": images,      
         "uploaded_urls": final_urls 
+    }
+
+
+@router.post("/generate_images_from_prompts", response_model=Dict[str, Any])
+async def generate_images_from_prompts(payload: BatchPromptsPayload):
+    if not payload.prompts:
+        raise HTTPException(status_code=400, detail="prompts cannot be empty")
+
+    if payload.images_per_prompt <= 0:
+        raise HTTPException(status_code=400, detail="images_per_prompt must be >= 1")
+
+    # 控制同時併發，避免 rate limit（可視平台調整）
+    sem = asyncio.Semaphore(2)
+
+    # 若沿用 save_image_to_disk(index) 的 001.png 模式，需要整體最大數量限制
+    total_needed = len(payload.prompts) * payload.images_per_prompt
+    if "MAX_IMAGES" in globals() and payload.naming == "sequence":
+        if payload.start_index + total_needed > MAX_IMAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"需要 {total_needed} 張，但從 index {payload.start_index} 起超過 MAX_IMAGES={MAX_IMAGES}"
+            )
+
+    # 逐場景處理（可平行）
+    tasks = [
+        process_one_prompt(
+            prompt=p,
+            scene_idx=(payload.start_index + i),
+            images_per_prompt=payload.images_per_prompt,
+            naming=payload.naming,
+            seq_offset=payload.start_index,
+            sem=sem
+        )
+        for i, p in enumerate(payload.prompts)
+    ]
+
+    results = await asyncio.gather(*tasks)
+
+    # 聚合
+    total_ok = sum(len(r["uploaded_urls"]) for r in results)
+    total_err = sum(len(r["errors"]) for r in results)
+
+    return {
+        "message": f"Processed {len(payload.prompts)} prompts; saved {total_ok} images; {total_err} issues.",
+        "n_prompts": len(payload.prompts),
+        "images_per_prompt": payload.images_per_prompt,
+        "naming": payload.naming,
+        "start_index": payload.start_index,
+        "results": results  # per-scene 詳細
     }
 
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
