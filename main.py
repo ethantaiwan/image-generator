@@ -478,28 +478,29 @@ async def process_one_prompt(prompt: str,
     return result
 
 # validate extract_image_prompts 
-def validate_forward_body(body: dict):
-    required_keys = ["prompts", "images_per_prompt", "start_index", "naming"]
-    for key in required_keys:
-        if key not in body:
-            raise HTTPException(status_code=422, detail=f"forward_body 缺少 {key}")
+#def validate_forward_body(body: dict):
+#    required_keys = ["prompts", "images_per_prompt", "start_index", "naming"]
+#    for key in required_keys:
+#        if key not in body:
+#            raise HTTPException(status_code=422, detail=f"forward_body 缺少 {key}")
 
-    if not isinstance(body["prompts"], list) or not body["prompts"]:
-        raise HTTPException(status_code=422, detail="prompts 必須是非空的字串陣列")
+#    if not isinstance(body["prompts"], list) or not body["prompts"]:
+#        raise HTTPException(status_code=422, detail="prompts 必須是非空的字串陣列")
 
-    if not all(isinstance(p, str) and p.strip() for p in body["prompts"]):
-        raise HTTPException(status_code=422, detail="prompts 中包含空字串或非字串")
+#    if not all(isinstance(p, str) and p.strip() for p in body["prompts"]):
+#        raise HTTPException(status_code=422, detail="prompts 中包含空字串或非字串")
 
-    if not isinstance(body["images_per_prompt"], int) or body["images_per_prompt"] < 1:
-        raise HTTPException(status_code=422, detail="images_per_prompt 必須為正整數")
+#    if not isinstance(body["images_per_prompt"], int) or body["images_per_prompt"] < 1:
+#        raise HTTPException(status_code=422, detail="images_per_prompt 必須為正整數")
 
-    if not isinstance(body["start_index"], int) or body["start_index"] < 0:
-        raise HTTPException(status_code=422, detail="start_index 必須為非負整數")
+#    if not isinstance(body["start_index"], int) or body["start_index"] < 0:
+#        raise HTTPException(status_code=422, detail="start_index 必須為非負整數")
 
-    if body["naming"] not in ("scene", "sequence"):
-        raise HTTPException(status_code=422, detail="naming 只能是 'scene' 或 'sequence'")
+ #   if body["naming"] not in ("scene", "sequence"):
+  #      raise HTTPException(status_code=422, detail="naming 只能是 'scene' 或 'sequence'")
 
-    return True
+ #   return True
+
 # ==========================================================
 # 🚀 API 路由定義
 # ==========================================================
@@ -793,7 +794,32 @@ async def generate_image_store(
         "uploaded_urls": final_urls 
     }
 
+def validate_forward_body(body: dict):
+    required_keys = ["prompts", "images_per_prompt", "start_index", "naming"]
+    for k in required_keys:
+        if k not in body:
+            raise HTTPException(status_code=422, detail=f"forward_body 缺少 {k}")
 
+    if not isinstance(body["prompts"], list) or not body["prompts"]:
+        raise HTTPException(status_code=422, detail="prompts 必須是非空的字串陣列")
+    if not all(isinstance(p, str) and p.strip() for p in body["prompts"]):
+        raise HTTPException(status_code=422, detail="prompts 中包含空字串或非字串")
+
+    # 強制只允許 1（業務規則）
+    try:
+        body["images_per_prompt"] = int(body["images_per_prompt"])
+    except Exception:
+        raise HTTPException(status_code=422, detail="images_per_prompt 必須為整數")
+    if body["images_per_prompt"] != 1:
+        body["images_per_prompt"] = 1  # ← clamp 成 1
+
+    if not isinstance(body["start_index"], int) or body["start_index"] < 0:
+        raise HTTPException(status_code=422, detail="start_index 必須為非負整數")
+
+    if body["naming"] not in ("scene", "sequence"):
+        raise HTTPException(status_code=422, detail="naming 只能是 'scene' 或 'sequence'")
+
+    return True
 @app.post("/generate_images_from_prompts", response_model=Dict[str, Any])
 async def generate_images_from_prompts(payload: BatchPromptsPayload):
     if not payload.prompts:
@@ -841,6 +867,47 @@ async def generate_images_from_prompts(payload: BatchPromptsPayload):
         "start_index": payload.start_index,
         "results": results  # per-scene 詳細
     }
+async def generate_images_from_prompts_internal(body: dict) -> dict:
+    # 🧩 第二層驗證：再檢查一次結構正確性
+    validate_forward_body(body)
+
+    prompts = body["prompts"]
+    images_per_prompt = 1  # 再保險，固定為1
+    start_index = body["start_index"]
+    naming = body["naming"]
+
+    results = []
+    current_index = start_index
+
+    for i, prompt in enumerate(prompts):
+        try:
+            images = gemini_image_generation(prompt, count=1)  # 固定 count=1
+            if not images:
+                raise ValueError("無圖片返回")
+
+            # ✅ 僅取第一張
+            first_img = images[0]
+            rel_url = await save_image_to_disk(first_img, current_index)
+            results.append({
+                "prompt_index": i,
+                "prompt": prompt,
+                "uploaded_urls": [rel_url],
+                "errors": [],
+            })
+            current_index += 1
+
+        except Exception as e:
+            results.append({
+                "prompt_index": i,
+                "prompt": prompt,
+                "uploaded_urls": [],
+                "errors": [str(e)],
+            })
+
+    ok = sum(1 for r in results if r["uploaded_urls"])
+    fail = len(results) - ok
+    return {"message": f"{ok} success, {fail} failed", "results": results}
+
 @app.post("/extract_image_prompts", response_model=ExtractOut)
 async def extract_image_prompts(payload: ExtractIn):
     text = (payload.result or "").strip()
@@ -866,71 +933,39 @@ async def extract_image_prompts(payload: ExtractIn):
         forward_body=forward,
     )
 
-@app.post("/extract_then_generate", response_model=ExtractThenGenerateOut)
-async def extract_then_generate(payload: ExtractIn = Body(...)):
-    # 1) 解析腳本文字 → prompts[]
+@app.post("/extract_then_generate")
+async def extract_then_generate(payload: ScriptPayload):
+    # 1️⃣ 從腳本文字中抽取 image_prompts
     text = (payload.result or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="result 內容為空，無法解析 image_prompt")
     prompts = parse_image_prompts(text)
     if not prompts:
-        raise HTTPException(status_code=422, detail="找不到任何 image_prompt 內容")
+        raise HTTPException(status_code=422, detail="找不到 image_prompt。")
 
-    # 2) 組 forward_body 並驗證
-    forward = {
+    # 2️⃣ 組 forward_body 並立即驗證
+    forward_body = {
         "prompts": prompts,
-        "images_per_prompt": payload.images_per_prompt,
+        "images_per_prompt": 1,  # 🔒 固定只生一張
         "start_index": payload.start_index,
         "naming": payload.naming,
     }
-    validate_forward_body(forward)  # 不合法會直接拋 422
+    validate_forward_body(forward_body)  # ✅ ← 在這裡被呼叫！
 
-    # 3) 自動呼叫 /generate_images_from_prompts
-    #    優先走本機回呼（Render 上用 $PORT），避免外網 DNS/防火牆問題
-    port = os.getenv("PORT", "8000")
-    gen_url = f"http://127.0.0.1:{port}/generate_images_from_prompts"
+    # 3️⃣ 呼叫實際生圖邏輯（直接呼叫函式，不再發 HTTP）
+    generate_result = await generate_images_from_prompts_internal(forward_body)
 
-    try:
-        timeout = httpx.Timeout(connect=10.0, read=120.0, write=30.0, pool=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(gen_url, json=forward)
-            # 若下游回 4xx/5xx，raise_for_status 會丟 httpx.HTTPStatusError
-            resp.raise_for_status()
-            gen_result = resp.json()
-    except httpx.HTTPStatusError as e:
-        # 下游 API 有回應但非 2xx，傳回下游的狀態碼 & 訊息
-        status = e.response.status_code
-        detail = None
-        try:
-            detail = e.response.json()
-        except Exception:
-            detail = e.response.text
-        # 502 比較合理地代表「上游代理呼叫下游失敗/下游拒絕」
-        raise HTTPException(status_code=status if status < 500 else 502,
-                            detail={"downstream_error": detail})
-    except httpx.ConnectTimeout:
-        raise HTTPException(status_code=504, detail="連線下游生成服務逾時（connect timeout）")
-    except httpx.ReadTimeout:
-        raise HTTPException(status_code=504, detail="下游生成服務讀取逾時（read timeout）")
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"呼叫下游生成服務失敗: {e}")
+    # 4️⃣ 整理回傳結果
+    uploaded_urls_flat = []
+    for item in generate_result["results"]:
+        uploaded_urls_flat += item.get("uploaded_urls", [])
 
-    # 4) 萃取所有 URL（平面化，方便前端直接用）
-    uploaded_flat: List[str] = []
-    try:
-        for item in gen_result.get("results", []):
-            uploaded_flat.extend(item.get("uploaded_urls", []))
-    except Exception:
-        # 保護性處理：即使結構不同也不中斷回傳
-        pass
+    return {
+        "forward_body": forward_body,
+        "generate_result": generate_result,
+        "uploaded_urls_flat": uploaded_urls_flat,
+        "n_prompts": len(prompts),
+        "images_per_prompt": 1,
+    }
 
-    return ExtractThenGenerateOut(
-        forward_body=forward,
-        generate_result=gen_result,
-        uploaded_urls_flat=uploaded_flat,
-        n_prompts=len(prompts),
-        images_per_prompt=payload.images_per_prompt
-    )
 @app.get(PUBLIC_URL_PREFIX + "{filename}")
 async def serve_image_from_disk(filename: str):
     """
