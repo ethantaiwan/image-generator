@@ -61,7 +61,7 @@ except Exception as e:
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # 使用者指定的模型
-MODEL_NAME = os.getenv("model_name") 
+#MODEL_NAME = os.getenv("model_name") 
 
 
 #try:
@@ -298,6 +298,7 @@ def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
     """
     #model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     model = os.getenv("model_name") 
+    print(f"[DEBUG] Current Image Generation Model: {model}")
 
     urls: List[str] = []
 
