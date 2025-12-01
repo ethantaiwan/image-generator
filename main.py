@@ -6,7 +6,9 @@ from google.genai import types
 import json, os
 import base64
 import uuid
-from pydantic import BaseModel, FieldScriptPayload
+#from pydantic import BaseModel, FieldScriptPayload
+from pydantic import BaseModel, Field  
+
 from typing import Any, Dict, List, Union, Optional, Literal
 import re
 import io
