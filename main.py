@@ -296,52 +296,60 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
 
 # 要多傳入 ratio_variable
-def gemini_image_generation(prompt: str,count: int = 1, aspect_ratio: str = "16:9") -> List[str]:
+def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16:9") -> List[str]:
     """
-    使用 gemini-2.5-flash-image 進行文生圖，回傳 Base64 Data URL。
-    注意：一次呼叫通常只會回一張，若要多張就 loop。
+    使用 gemini-2.5-flash-image 進行文生圖。
+    修正：將 aspect_ratio 移至 prompt 中，避免 Config 報錯。
     """
-    #model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
-    model = os.getenv("model_name") 
-    print(f"[DEBUG] Current Image Generation Model: {model}")
+    model = os.getenv("model_name", "gemini-2.5-flash-image") 
+    print(f"[DEBUG] Current Image Generation Model: {model}, Ratio: {aspect_ratio}")
+    
+    # ★★★ 修正 1: 將比例加入 Prompt 中 ★★★
+    # Gemini 模型透過自然語言理解圖片比例，比參數設定更有效且不會報錯
+    final_prompt = f"{prompt}, aspect ratio {aspect_ratio}"
 
     urls: List[str] = []
-
+    
     # 依需求產生多張
     for _ in range(max(1, count)):
-        resp = client.models.generate_content(
-            model=model,
-            contents=[prompt],
-            # 關鍵：指定只回 Image，避免文字吞掉輸出；需要新版本 google-genai
-            config=types.GenerateContentConfig(
-                response_modalities=["Image"],        # ← 只回圖片
-                # 可選：設定比例（官方文件支援 image_config.aspect_ratio）
-                # image_config=types.ImageConfig(aspect_ratio="1:1"),
-                aspect_ratio=aspect_ratio,  # 這裡放入變數，例如 '16:9'
-                # 如果被Gemini 阻擋會告訴你為什麼
-                include_rai_reason=True,
-                temperature=0.8,
-            ),
-        )
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=[final_prompt], # 使用包含比例的 Prompt
+                # 關鍵：指定只回 Image
+                config=types.GenerateContentConfig(
+                    response_modalities=["Image"],        
+                    temperature=0.8,
+                    # ★★★ 修正 2: 移除導致報錯的參數 ★★★
+                    # aspect_ratio=aspect_ratio,  <-- 移除
+                    include_rai_reason=True,   
+                ),
+            )
 
-        # 正確解析路徑：candidates[0].content.parts
-        parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
-        for p in parts:
-            inline = getattr(p, "inline_data", None)
-            if inline and getattr(inline, "mime_type", "").startswith("image/"):
-                data = inline.data
-                if isinstance(data, str):
-                    data = base64.b64decode(data)
-                b64 = base64.b64encode(data).decode("utf-8")
-                mime = inline.mime_type or "image/png"
-                urls.append(f"data:{mime};base64,{b64}")
+            # 正確解析路徑
+            parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
+            for p in parts:
+                inline = getattr(p, "inline_data", None)
+                if inline and getattr(inline, "mime_type", "").startswith("image/"):
+                    data = inline.data
+                    if isinstance(data, str):
+                        data = base64.b64decode(data)
+                    b64 = base64.b64encode(data).decode("utf-8")
+                    mime = inline.mime_type or "image/png"
+                    urls.append(f"data:{mime};base64,{b64}")
+                    
+        except Exception as e:
+            print(f"[Error] Image generation failed: {e}")
+            # 可以選擇是否要繼續嘗試或中斷
+            continue
 
-    # 去重＋裁切
+    # 去重
     dedup, seen = [], set()
     for u in urls:
         if u not in seen:
             seen.add(u)
             dedup.append(u)
+
     return dedup[:count]
 
 # 假設 client 和 MODEL_NAME="gemini-2.5-flash-image-preview" 已經定義
