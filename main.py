@@ -291,6 +291,8 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         return None
 
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
+
+# 要多傳入 ratio_variable
 def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
     """
     使用 gemini-2.5-flash-image 進行文生圖，回傳 Base64 Data URL。
@@ -312,6 +314,9 @@ def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
                 response_modalities=["Image"],        # ← 只回圖片
                 # 可選：設定比例（官方文件支援 image_config.aspect_ratio）
                 # image_config=types.ImageConfig(aspect_ratio="1:1"),
+                #aspect_ratio=ratio_variable,  # 這裡放入變數，例如 '16:9'
+                # 如果被Gemini 阻擋會告訴你為什麼
+                include_rai_reason=True,
                 temperature=0.8,
             ),
         )
