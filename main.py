@@ -6,7 +6,7 @@ from google.genai import types
 import json, os
 import base64
 import uuid
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, FieldScriptPayload
 from typing import Any, Dict, List, Union, Optional, Literal
 import re
 import io
@@ -147,7 +147,8 @@ class ScriptPayload(BaseModel):
     images_per_prompt: int = Field(1, ge=1)
     start_index: int = Field(0, ge=0)
     naming: Literal["scene", "sequence"] = "scene"
-    
+    aspect_ratio: str = Field("16:9", description="圖片比例 e.g., 16:9, 9:16")
+
 class ExtractIn(BaseModel):
     result: str = Field(..., description="整段 storyboard 文字，內含多個 image_prompt 區塊")
     images_per_prompt: int = Field(1, ge=1)
@@ -293,7 +294,7 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
 
 # 要多傳入 ratio_variable
-def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
+def gemini_image_generation(prompt: str,count: int = 1, aspect_ratio: str = "16:9") -> List[str]:
     """
     使用 gemini-2.5-flash-image 進行文生圖，回傳 Base64 Data URL。
     注意：一次呼叫通常只會回一張，若要多張就 loop。
@@ -314,7 +315,7 @@ def gemini_image_generation(prompt: str,count: int = 1) -> List[str]:
                 response_modalities=["Image"],        # ← 只回圖片
                 # 可選：設定比例（官方文件支援 image_config.aspect_ratio）
                 # image_config=types.ImageConfig(aspect_ratio="1:1"),
-                aspect_ratio=ratio_variable,  # 這裡放入變數，例如 '16:9'
+                aspect_ratio=aspect_ratio,,  # 這裡放入變數，例如 '16:9'
                 # 如果被Gemini 阻擋會告訴你為什麼
                 include_rai_reason=True,
                 temperature=0.8,
@@ -907,13 +908,14 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
     images_per_prompt = 1  # 再保險，固定為1
     start_index = body["start_index"]
     naming = body["naming"]
+    aspect_ratio = body.get("aspect_ratio", "16:9") 
 
     results = []
     current_index = start_index
 
     for i, prompt in enumerate(prompts):
         try:
-            images = gemini_image_generation(prompt, count=1)  # 固定 count=1
+            images = gemini_image_generation(prompt, count=1,aspect_ratio=aspect_ratio)  # 固定 count=1
             if not images:
                 raise ValueError("無圖片返回")
 
@@ -979,6 +981,8 @@ async def extract_then_generate(payload: ScriptPayload):
         "images_per_prompt": 1,  # 🔒 固定只生一張
         "start_index": payload.start_index,
         "naming": payload.naming,
+        "aspect_ratio": payload.aspect_ratio
+
     }
     validate_forward_body(forward_body)  # ✅ ← 在這裡被呼叫！
 
