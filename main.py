@@ -321,7 +321,7 @@ def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16
                     response_modalities=["Image"],        
                     temperature=0.8,
                     # ★★★ 修正 2: 移除導致報錯的參數 ★★★
-                    aspect_ratio=aspect_ratio,
+                   # aspect_ratio=aspect_ratio,
                     #include_rai_reason=True,   
                 ),
             )
