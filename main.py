@@ -307,7 +307,8 @@ def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16
     # ★★★ 修正 1: 將比例加入 Prompt 中 ★★★
     # Gemini 模型透過自然語言理解圖片比例，比參數設定更有效且不會報錯
     final_prompt = f"{prompt}, aspect ratio {aspect_ratio}"
-
+    # ▼▼▼ 新增這行：印出最終送給 Gemini 的 Prompt ▼▼▼
+    print(f"🚀 [Sending to Gemini] Prompt: {final_prompt}")
     urls: List[str] = []
     
     # 依需求產生多張
