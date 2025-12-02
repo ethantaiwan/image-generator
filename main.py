@@ -299,16 +299,41 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
 def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16:9") -> List[str]:
     """
     使用 gemini-2.5-flash-image 進行文生圖。
-    修正：將 aspect_ratio 移至 prompt 中，避免 Config 報錯。
+    優化：將 aspect_ratio 映射為具體像素尺寸，並寫入 Prompt 強制模型遵循。
     """
+    # 取得模型名稱 (環境變數)
     model = os.getenv("model_name", "gemini-2.5-flash-image") 
-    print(f"[DEBUG] Current Image Generation Model: {model}, Ratio: {aspect_ratio}")
     
-    # ★★★ 修正 1: 將比例加入 Prompt 中 ★★★
-    # Gemini 模型透過自然語言理解圖片比例，比參數設定更有效且不會報錯
-    final_prompt = f"{prompt}, aspect ratio {aspect_ratio}"
-    # ▼▼▼ 新增這行：印出最終送給 Gemini 的 Prompt ▼▼▼
+    # 1. 定義尺寸映射表 (根據你的要求)
+    # 包含 寬(w), 高(h), 以及輔助的英文描述(desc)來加強模型理解
+    size_map = {
+        "4:3":  {"w": 2400, "h": 1792, "desc": "standard TV format"},
+        "3:4":  {"w": 1792, "h": 2400, "desc": "vertical portrait format"},
+        "16:9": {"w": 2752, "h": 1536, "desc": "wide cinematic landscape"},
+        "9:16": {"w": 1536, "h": 2752, "desc": "vertical mobile full screen"},
+        "1:1":  {"w": 1024, "h": 1024, "desc": "square format"} # 預設
+    }
+
+    # 2. 取得對應的尺寸數據，若找不到則預設 16:9
+    specs = size_map.get(aspect_ratio, size_map["16:9"])
+    w, h = specs["w"], specs["h"]
+    desc = specs["desc"]
+
+    # 3. 組合強制尺寸的 Prompt 後綴 (中英夾雜效果通常最好)
+    # 優化後的字串：明確指出像素、比例，並加上 "Exact Resolution" 關鍵字
+    size_instruction = (
+        f", 輸出圖片尺寸為 {w} X {h}，比例為 {aspect_ratio}。"
+        f" (Exact resolution: {w}x{h}, {desc})."
+        f" 請強制遵守輸出圖片的尺寸與構圖。"
+    )
+    
+    # 4. 組合最終 Prompt
+    final_prompt = f"{prompt}{size_instruction}"
+
+    # Log 方便除錯
+    print(f"[DEBUG] Model: {model} | Ratio: {aspect_ratio} | Size: {w}x{h}")
     print(f"🚀 [Sending to Gemini] Prompt: {final_prompt}")
+
     urls: List[str] = []
     
     # 依需求產生多張
@@ -316,18 +341,15 @@ def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16
         try:
             resp = client.models.generate_content(
                 model=model,
-                contents=[final_prompt], # 使用包含比例的 Prompt
-                # 關鍵：指定只回 Image
+                contents=[final_prompt], 
+                # Config 中移除不支援的參數，回歸純 Prompt 控制
                 config=types.GenerateContentConfig(
                     response_modalities=["Image"],        
                     temperature=0.8,
-                    # ★★★ 修正 2: 移除導致報錯的參數 ★★★
-                   # aspect_ratio=aspect_ratio,
-                    #include_rai_reason=True,   
                 ),
             )
 
-            # 正確解析路徑
+            # 解析回應 (保持原本邏輯)
             parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
             for p in parts:
                 inline = getattr(p, "inline_data", None)
@@ -341,7 +363,6 @@ def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16
                     
         except Exception as e:
             print(f"[Error] Image generation failed: {e}")
-            # 可以選擇是否要繼續嘗試或中斷
             continue
 
     # 去重
