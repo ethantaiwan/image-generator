@@ -102,13 +102,12 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 def parse_image_prompts(text: str) -> List[str]:
     text = text.replace("\r\n", "\n")
 
-    marker = re.compile(
-        r'(?i)image[\s_\-]*prompt',
-        flags=re.IGNORECASE
-    )
+    # 找到 image_prompt 起點
+    marker = re.compile(r'(?i)image[\s_\-]*prompt', flags=re.IGNORECASE)
 
+    # 找下一個大標題：Scene X or ### Scene X or EOF
     stop_pattern = re.compile(
-        r'^\s*(Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]+\)|[一二三四五六七八九十]+\.)',
+        r'^(?:\s*Scene\s*\d+|##\s*Scene\s*\d+|#\s*Scene\s*\d+)',
         flags=re.IGNORECASE
     )
 
@@ -121,30 +120,22 @@ def parse_image_prompts(text: str) -> List[str]:
 
         lines = chunk.split("\n")
         buf = []
+        start_collecting = False
 
         for line in lines:
-            cleaned = line.strip()
+            stripped = line.strip()
 
-            # stop signals
-            if stop_pattern.match(cleaned):
+            # 🔥 直到遇到真正的 image_prompt 下一行，才開始收集
+            if stripped.startswith("年輕") or stripped.startswith("亞洲") or stripped.startswith("女孩") or "站在" in stripped:
+                start_collecting = True
+
+            # 開始收集後，遇到下一個 Scene 才停止
+            if start_collecting and stop_pattern.match(stripped):
                 break
 
-            if cleaned == "":
-                continue
-
-            # remove bullet prefix
-            cleaned = re.sub(r'^[\-\–\—]\s*', '', cleaned)
-
-            # remove 「xxx」 or "xxx"
-            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
-            if m_quote:
-                cleaned = m_quote.group(1).strip()
-
-            # 🔥🔥 去掉像 "(Scene 1)"、"（Scene 1）" 的前綴 🔥🔥
-            cleaned = re.sub(r'^[（(]\s*Scene\s*\d+\s*[)）]\s*', '', cleaned, flags=re.IGNORECASE)
-
-            if cleaned:
-                buf.append(cleaned)
+            if start_collecting:
+                if stripped:
+                    buf.append(stripped)
 
         merged = " ".join(buf).strip()
         if merged:
