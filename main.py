@@ -102,13 +102,11 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 def parse_image_prompts(text: str) -> List[str]:
     text = text.replace("\r\n", "\n")
 
-    # 找到所有 "image_prompt" / "image prompt" / "image-prompt" variants
     marker = re.compile(
-        r'(?i)image[\s_\-]*prompt', 
+        r'(?i)image[\s_\-]*prompt',
         flags=re.IGNORECASE
     )
 
-    # Scene 標題、數字段落 → 代表下一段開頭
     stop_pattern = re.compile(
         r'^\s*(Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]+\)|[一二三四五六七八九十]+\.)',
         flags=re.IGNORECASE
@@ -116,46 +114,44 @@ def parse_image_prompts(text: str) -> List[str]:
 
     prompts = []
 
-    # 找到每一個 image_prompt 開始的位置
     for m in marker.finditer(text):
         start = m.end()
-
-        # 找下一個 image_prompt 當作結束點
         next_m = marker.search(text, pos=start)
         chunk = text[start: next_m.start()] if next_m else text[start:]
 
-        # 分行處理（保留空行）
         lines = chunk.split("\n")
-
         buf = []
+
         for line in lines:
             cleaned = line.strip()
 
-            # 遇到下一個 section 標題 → 停止收集
+            # stop signals
             if stop_pattern.match(cleaned):
                 break
 
-            # 允許 image_prompt 之間有空行（不會 break）
             if cleaned == "":
                 continue
 
-            # 移除前綴破折號
+            # remove bullet prefix
             cleaned = re.sub(r'^[\-\–\—]\s*', '', cleaned)
 
-            # 括號內文字 "xxx" 或 「xxx」
+            # remove 「xxx」 or "xxx"
             m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
             if m_quote:
                 cleaned = m_quote.group(1).strip()
 
+            # 🔥🔥 去掉像 "(Scene 1)"、"（Scene 1）" 的前綴 🔥🔥
+            cleaned = re.sub(r'^[（(]\s*Scene\s*\d+\s*[)）]\s*', '', cleaned, flags=re.IGNORECASE)
+
             if cleaned:
                 buf.append(cleaned)
 
-        # 最終合併
         merged = " ".join(buf).strip()
         if merged:
             prompts.append(merged)
 
     return prompts
+
 
 
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
