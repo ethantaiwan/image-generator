@@ -99,36 +99,63 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 
 
 def parse_image_prompts(text: str) -> List[str]:
-    text = text.replace('\r\n', '\n')
-    marker = re.compile(r'(?i)(image[\s_]*prompt.*?)[:：]\s*', flags=re.DOTALL)
-    stop_line = re.compile(
-        r'^\s*(?:Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]\)|[一二三四五六七八九十]\.)',
+    """
+    擷取每個 image_prompt（Scene N）下面到下一段標題之前的內容。
+    支援多種格式變形：
+    - image_prompt:
+    - image prompt:
+    - image_prompt（Scene 2）
+    - image_prompt Scene 2
+    """
+    text = text.replace("\r\n", "\n")
+
+    # 尋找 image_prompt（含 Scene）的標記
+    marker = re.compile(
+        r'(?i)(image[\s_]*prompt\s*(?:（[^）]+）|\([^)]*\)|scene\s*\d+)?)\s*[:：]\s*',
+        flags=re.DOTALL
+    )
+
+    # 下一個區塊的開始（Scene 3, 4, ...）
+    block_boundary = re.compile(
+        r'^\s*(?:Scene\s*\d+|[一二三四五六七八九十]+\s*[）.)])',
         flags=re.IGNORECASE
     )
-    prompts: List[str] = []
-    for m in marker.finditer(text):
+
+    prompts = []
+    matches = list(marker.finditer(text))
+
+    for idx, m in enumerate(matches):
         start = m.end()
-        next_m = marker.search(text, pos=start)
-        chunk = text[start: next_m.start()] if next_m else text[start:]
-        lines = chunk.split('\n')
-        buf: List[str] = []
-        for line in lines:
-            if not line.strip():
-                break
-            if stop_line.match(line):
-                break
-            cleaned = re.sub(r'^\s*[-–—]\s*', '', line).strip()
-            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
-            if m_quote:
-                cleaned = m_quote.group(1).strip()
-            if cleaned:
-                buf.append(cleaned)
-        if not buf:
-            continue
-        merged = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
-        if merged:
-            prompts.append(merged)
+
+        # 找下一個 image_prompt 或下一個 Scene 標題
+        next_pos = None
+
+        # 1. 下一個 image_prompt
+        if idx + 1 < len(matches):
+            next_pos = matches[idx + 1].start()
+
+        # 2. 找下一個 Scene
+        scene_match = block_boundary.search(text, pos=start)
+        if scene_match:
+            if next_pos is None:
+                next_pos = scene_match.start()
+            else:
+                next_pos = min(next_pos, scene_match.start())
+
+        # 萃取 raw 區塊
+        chunk = text[start:next_pos].strip() if next_pos else text[start:].strip()
+
+        # 移除開頭列點（如果 GPT 自己加上）
+        cleaned = re.sub(r'^\s*[-–—•]\s*', '', chunk)
+
+        # 合併多餘換行
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+        if cleaned:
+            prompts.append(cleaned)
+
     return prompts
+
 
 # --- Pydantic 模型用於請求 Body (接收您的生成 JSON 輸出) ---
 # 數據模型 (Pydantic)
