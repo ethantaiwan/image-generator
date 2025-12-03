@@ -64,6 +64,7 @@ client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # 使用者指定的模型
 #MODEL_NAME = os.getenv("model_name") 
+MODEL_NAME = os.getenv("model_name", "gemini-2.5-flash-image") 
 
 
 #try:
