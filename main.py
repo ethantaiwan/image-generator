@@ -100,60 +100,60 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 
 
 def parse_image_prompts(text: str) -> List[str]:
-    """
-    擷取每個 image_prompt（Scene N）下面到下一段標題之前的內容。
-    支援多種格式變形：
-    - image_prompt:
-    - image prompt:
-    - image_prompt（Scene 2）
-    - image_prompt Scene 2
-    """
     text = text.replace("\r\n", "\n")
 
-    # 尋找 image_prompt（含 Scene）的標記
+    # 找到所有 "image_prompt" / "image prompt" / "image-prompt" variants
     marker = re.compile(
-        r'(?i)(image[\s_]*prompt\s*(?:（[^）]+）|\([^)]*\)|scene\s*\d+)?)\s*[:：]\s*',
-        flags=re.DOTALL
+        r'(?i)image[\s_\-]*prompt', 
+        flags=re.IGNORECASE
     )
 
-    # 下一個區塊的開始（Scene 3, 4, ...）
-    block_boundary = re.compile(
-        r'^\s*(?:Scene\s*\d+|[一二三四五六七八九十]+\s*[）.)])',
+    # Scene 標題、數字段落 → 代表下一段開頭
+    stop_pattern = re.compile(
+        r'^\s*(Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]+\)|[一二三四五六七八九十]+\.)',
         flags=re.IGNORECASE
     )
 
     prompts = []
-    matches = list(marker.finditer(text))
 
-    for idx, m in enumerate(matches):
+    # 找到每一個 image_prompt 開始的位置
+    for m in marker.finditer(text):
         start = m.end()
 
-        # 找下一個 image_prompt 或下一個 Scene 標題
-        next_pos = None
+        # 找下一個 image_prompt 當作結束點
+        next_m = marker.search(text, pos=start)
+        chunk = text[start: next_m.start()] if next_m else text[start:]
 
-        # 1. 下一個 image_prompt
-        if idx + 1 < len(matches):
-            next_pos = matches[idx + 1].start()
+        # 分行處理（保留空行）
+        lines = chunk.split("\n")
 
-        # 2. 找下一個 Scene
-        scene_match = block_boundary.search(text, pos=start)
-        if scene_match:
-            if next_pos is None:
-                next_pos = scene_match.start()
-            else:
-                next_pos = min(next_pos, scene_match.start())
+        buf = []
+        for line in lines:
+            cleaned = line.strip()
 
-        # 萃取 raw 區塊
-        chunk = text[start:next_pos].strip() if next_pos else text[start:].strip()
+            # 遇到下一個 section 標題 → 停止收集
+            if stop_pattern.match(cleaned):
+                break
 
-        # 移除開頭列點（如果 GPT 自己加上）
-        cleaned = re.sub(r'^\s*[-–—•]\s*', '', chunk)
+            # 允許 image_prompt 之間有空行（不會 break）
+            if cleaned == "":
+                continue
 
-        # 合併多餘換行
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            # 移除前綴破折號
+            cleaned = re.sub(r'^[\-\–\—]\s*', '', cleaned)
 
-        if cleaned:
-            prompts.append(cleaned)
+            # 括號內文字 "xxx" 或 「xxx」
+            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
+            if m_quote:
+                cleaned = m_quote.group(1).strip()
+
+            if cleaned:
+                buf.append(cleaned)
+
+        # 最終合併
+        merged = " ".join(buf).strip()
+        if merged:
+            prompts.append(merged)
 
     return prompts
 
