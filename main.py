@@ -102,46 +102,48 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 def parse_image_prompts(text: str) -> List[str]:
     text = text.replace("\r\n", "\n")
 
-    # 找到 image_prompt 起點
-    marker = re.compile(r'(?i)image[\s_\-]*prompt', flags=re.IGNORECASE)
+    # 找到所有 image_prompt 標題
+    marker = re.compile(
+        r'(?i)(?:^|\n)\s*\d+\)\s*image[\s_]*prompt.*?(?:[:：]|\n)\s*'
+    )
 
-    # 找下一個大標題：Scene X or ### Scene X or EOF
+    # 定義真正會中斷 image_prompt 的下一段標題
     stop_pattern = re.compile(
-        r'^(?:\s*Scene\s*\d+|##\s*Scene\s*\d+|#\s*Scene\s*\d+)',
-        flags=re.IGNORECASE
+        r'(?i)^(Scene\s*\d+|'           # Scene X
+        r'\d+\)\s*(?!(image_prompt))|'  # 1), 2), 3), 但排除 7) image_prompt
+        r'image[\s_]*prompt|'           # 下一段 image_prompt
+        r'video[\s_]*prompt|'           # video_prompt
+        r'storyboard_text)'             # storyboard_text
     )
 
     prompts = []
-
     for m in marker.finditer(text):
         start = m.end()
+
+        # 找下一個 image_prompt
         next_m = marker.search(text, pos=start)
         chunk = text[start: next_m.start()] if next_m else text[start:]
 
         lines = chunk.split("\n")
         buf = []
-        start_collecting = False
 
         for line in lines:
             stripped = line.strip()
+            if not stripped:
+                continue
 
-            # 🔥 直到遇到真正的 image_prompt 下一行，才開始收集
-            if stripped.startswith("年輕") or stripped.startswith("亞洲") or stripped.startswith("女孩") or "站在" in stripped:
-                start_collecting = True
-
-            # 開始收集後，遇到下一個 Scene 才停止
-            if start_collecting and stop_pattern.match(stripped):
+            # 遇到下一段標題 → 結束
+            if stop_pattern.match(stripped):
                 break
 
-            if start_collecting:
-                if stripped:
-                    buf.append(stripped)
+            buf.append(stripped)
 
         merged = " ".join(buf).strip()
         if merged:
             prompts.append(merged)
 
     return prompts
+
 
 
 
