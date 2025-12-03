@@ -241,31 +241,49 @@ def prompt_retrieval(req: PromptRetrievalRequest):
 
 @app.post("/extract_then_generate")
 async def extract_then_generate(payload: ScriptPayload):
-    text = payload.result.strip()
+    text = (payload.result or "").strip()
+    
+    # 1. 提取 Prompts
     prompts = parse_image_prompts(text)
+    
+    # ★★★ 新增 Log：印出提取結果 ★★★
+    print(f"\n{'='*20} [Extract Prompt Debug] {'='*20}")
+    print(f"📝 Input Script Length: {len(text)} chars")
+    print(f"🔍 Found {len(prompts)} prompts:")
+    for idx, p in enumerate(prompts):
+        print(f"  #{idx+1}: {p[:50]}..." if len(p) > 50 else f"  #{idx+1}: {p}")
+    print(f"{'='*60}\n")
+    # ★★★★★★★★★★★★★★★★★★★★★★★★★
+
     if not prompts:
-        raise HTTPException(422, "找不到 image_prompt")
+        raise HTTPException(status_code=422, detail="找不到 image_prompt。")
 
     results = []
     current_index = payload.start_index
-    
-    # 傳遞 aspect_ratio
     ratio = payload.aspect_ratio 
 
+    # 2. 依序生成
     for i, p in enumerate(prompts):
         try:
+            print(f"🚀 [Generating #{i+1}] {p[:30]}...")
             images = gemini_image_generation(p, count=1, aspect_ratio=ratio)
+            
             if not images:
-                raise ValueError("無圖片返回")
+                print(f"❌ [Failed #{i+1}] Gemini returned no images.")
+                raise ValueError("無圖片返回 (可能被 Safety Filter 攔截)")
             
             url = await save_image_to_disk(images[0], current_index)
+            print(f"✅ [Saved #{i+1}] -> {url}")
+            
             results.append({
                 "prompt": p, 
                 "uploaded_urls": [url], 
                 "errors": []
             })
             current_index += 1
+            
         except Exception as e:
+            print(f"💥 [Error #{i+1}] {e}")
             results.append({
                 "prompt": p, 
                 "uploaded_urls": [], 
@@ -277,7 +295,8 @@ async def extract_then_generate(payload: ScriptPayload):
     return {
         "generate_result": {"results": results},
         "uploaded_urls_flat": uploaded_flat,
-        "n_prompts": len(prompts)
+        "n_prompts": len(prompts),
+        "images_per_prompt": 1,
     }
 
 # -------------------------------------------------------
