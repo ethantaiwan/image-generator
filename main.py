@@ -100,50 +100,36 @@ REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/
 
 
 def parse_image_prompts(text: str) -> List[str]:
-    text = text.replace("\r\n", "\n")
-
-    # 找到所有 image_prompt 標題
-    marker = re.compile(
-        r'(?i)(?:^|\n)\s*\d+\)\s*image[\s_]*prompt.*?(?:[:：]|\n)\s*'
+    text = text.replace('\r\n', '\n')
+    marker = re.compile(r'(?i)(image[\s_]*prompt.*?)[:：]\s*', flags=re.DOTALL)
+    stop_line = re.compile(
+        r'^\s*(?:Scene\s*\d+|[0-9０-９]+\)|\d+\.\s|[一二三四五六七八九十]\)|[一二三四五六七八九十]\.)',
+        flags=re.IGNORECASE
     )
-
-    # 定義真正會中斷 image_prompt 的下一段標題
-    stop_pattern = re.compile(
-        r'(?i)^(Scene\s*\d+|'           # Scene X
-        r'\d+\)\s*(?!(image_prompt))|'  # 1), 2), 3), 但排除 7) image_prompt
-        r'image[\s_]*prompt|'           # 下一段 image_prompt
-        r'video[\s_]*prompt|'           # video_prompt
-        r'storyboard_text)'             # storyboard_text
-    )
-
-    prompts = []
+    prompts: List[str] = []
     for m in marker.finditer(text):
         start = m.end()
-
-        # 找下一個 image_prompt
         next_m = marker.search(text, pos=start)
         chunk = text[start: next_m.start()] if next_m else text[start:]
-
-        lines = chunk.split("\n")
-        buf = []
-
+        lines = chunk.split('\n')
+        buf: List[str] = []
         for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                continue
-
-            # 遇到下一段標題 → 結束
-            if stop_pattern.match(stripped):
+            if not line.strip():
                 break
-
-            buf.append(stripped)
-
-        merged = " ".join(buf).strip()
+            if stop_line.match(line):
+                break
+            cleaned = re.sub(r'^\s*[-–—]\s*', '', line).strip()
+            m_quote = re.search(r'「(.+?)」', cleaned) or re.search(r'"([^"]+)"', cleaned)
+            if m_quote:
+                cleaned = m_quote.group(1).strip()
+            if cleaned:
+                buf.append(cleaned)
+        if not buf:
+            continue
+        merged = re.sub(r'\s+', ' ', ' '.join(buf)).strip()
         if merged:
             prompts.append(merged)
-
     return prompts
-
 
 
 
