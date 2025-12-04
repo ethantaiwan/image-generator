@@ -97,49 +97,7 @@ PUBLIC_URL_PREFIX = "/image-uploads/temp/"
 # --- 假設遠端服務的 URL ---
 # 請將這裡替換成您實際部署 image-generator 的 API 地址
 REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/api/image-generator" 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-#OPENAI_API_KEY  = "sk-uvDM4i9hr1uwsw40LKtRXf8YmuIHCso20rjNCXNumvT3BlbkFJN78QYUUPerFjwHRP7dtJy5lKMcicMH_L6Kuht_1R0A"
-if not OPENAI_API_KEY:
-    # 在 Render 上到「Environment」加一個 OPENAI_API_KEY
-    raise RuntimeError("Missing OPENAI_API_KEY environment variable.")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
-def caption_image(image_url):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",   # 或你指定的 vision model
-        input=[
-            {"role": "system", "content": "請用繁體中文精準描述這張圖片的構圖、姿勢、光線、背景、方向等。"},
-            {"role": "user", "content": [{"type": "input_image", "image_url": image_url}]}
-        ]
-    )
-    content_text = (response.choices[0].message.content or "").strip()
-
-    return content_text
-def generate_video_prompt(prev_caption, next_caption):
-    prompt = f"""
-以下為兩張連續場景的圖片敘述：
-
-【上一張】
-{prev_caption}
-
-【下一張】
-{next_caption}
-
-請用繁體中文寫出 Kling 可用的 video_prompt，描述如何讓上一張畫面自然過渡到下一張。必須包含：
-
-- 主體姿勢與方向如何轉換
-- 光線如何改變
-- 背景如何過渡
-- 鏡頭運動
-"""
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini", 
-        input=[{"role": "user", "content": prompt}]
-    )
-    content_text = (response.choices[0].message.content or "").strip()
-
-    return content_text
 
 
 def parse_image_prompts(text: str) -> List[str]:
