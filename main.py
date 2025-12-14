@@ -99,6 +99,26 @@ PUBLIC_URL_PREFIX = "/image-uploads/temp/"
 REMOTE_IMAGE_GENERATOR_URL = "https://https://image-generator-i03j.onrender.com/api/image-generator" 
 
 
+def extract_tag(text: str, tag: str) -> str | None:
+    """
+    從全文中抽出 <tag> ... </tag> 中的內容。
+    tag 範例：image_prompt_1, video_prompt_3
+    """
+    pattern = fr"<{tag}>(.*?)</{tag}>"
+    m = re.search(pattern, text, flags=re.DOTALL)
+    return m.group(1).strip() if m else None
+
+
+def extract_all_image_prompts(script: str, scene_count: int):
+    prompts = []
+    for i in range(1, scene_count + 1):
+        tag = f"image_prompt_{i}"
+        p = extract_tag(script, tag)
+        if p:
+            prompts.append(p)
+        else:
+            print(f"⚠️ Missing {tag}")
+    return prompts
 
 def parse_image_prompts(text: str) -> List[str]:
     text = text.replace('\r\n', '\n')
@@ -972,15 +992,27 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
     ok = sum(1 for r in results if r["uploaded_urls"])
     fail = len(results) - ok
     return {"message": f"{ok} success, {fail} failed", "results": results}
-
+#####
+#####
+#####
+#####
 @app.post("/extract_image_prompts", response_model=ExtractOut)
 async def extract_image_prompts(payload: ExtractIn):
-    text = (payload.result or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="result 內容為空，無法解析 image_prompt")
-    prompts = parse_image_prompts(text)
-    if not prompts:
-        raise HTTPException(status_code=422, detail="找不到任何 image_prompt 內容")
+    # 1️⃣ 依照場景數抽取 image_prompt_X
+
+    prompts = extract_all_image_prompts(script, payload.scene_count)
+
+
+
+    print("\n================== [Extract Prompt Debug] ==================")
+    print(f"📝 Input Script Length: {len(script)} chars")
+    print(f"🔍 Found {len(prompts)} image prompts")
+
+    if not prompts or len(prompts) < payload.scene_count:
+    raise HTTPException(
+        status_code=422,
+        detail=f"找不到完整的 image_prompts（預期 {payload.scene_count} 個）"
+    )
     forward = {
         "prompts": prompts,
         "images_per_prompt": payload.images_per_prompt,
