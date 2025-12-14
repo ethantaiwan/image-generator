@@ -139,47 +139,40 @@ def extract_tag(text: str, tag: str) -> str | None:
 #
 #    return prompts
 
-import re
-import re
+import json
 
 def extract_all_image_prompts(script: str, scene_count: int):
+    """
+    從 JSON 格式的腳本中抽取 image_prompt。
+    script: LLM 回傳的 JSON 字串
+    scene_count: 預期的場景數
+    return: list of image_prompt strings
+    """
     prompts = []
 
-    for i in range(1, scene_count + 1):
+    try:
+        data = json.loads(script)
+    except Exception:
+        # 如果壞掉的 JSON，回傳空 prompts，但不 crash
+        return [""] * scene_count
 
-        # 只抓 tag，找不到就填空字串
-        block = re.search(
-            rf"<image_prompt_{i}>(.*?)</image_prompt_{i}>",
-            script,
-            flags=re.DOTALL
-        )
+    scenes = data.get("scenes", [])
 
-        if not block:
-            prompts.append("")
-            continue
-
-        # 取出 block 內容
-        content = block.group(1)
-
-        # 抓 image_prompt: 後面的內容
-        match = re.search(r"image_prompt\s*:\s*(.*)", content, flags=re.DOTALL)
-        if not match:
-            prompts.append("")
-            continue
-
-        prompt = match.group(1).strip()
-
-        # 清除可能的多餘 tag
-        prompt = re.split(r"</?[^>]+>", prompt)[0].strip()
-
-        # 基本防呆（拒絕明顯垃圾）
-        if len(prompt) < 40:   # 太短當垃圾
-            prompts.append("")
-            continue
+    for i in range(scene_count):
+        if i < len(scenes):
+            prompt = scenes[i].get("image_prompt", "")
+            # 清理 prompt（避免多空白）
+            if isinstance(prompt, str):
+                prompt = " ".join(prompt.split())
+            else:
+                prompt = ""
+        else:
+            prompt = ""
 
         prompts.append(prompt)
 
     return prompts
+
 
 
 def parse_image_prompts(text: str) -> List[str]:
