@@ -123,19 +123,44 @@ def extract_tag(text: str, tag: str) -> str | None:
 
 
 
-def extract_all_image_prompts(script: str, scene_count: int):
+#def extract_all_image_prompts(script: str, scene_count: int):
+#    prompts = []
+#    for i in range(1, scene_count + 1):
+#        pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
+#        match = re.search(pattern, script, flags=re.DOTALL | re.IGNORECASE)##
+
+#        if not match:
+#            prompts.append("")
+#        else:
+#            # 清掉 markdown、前後多餘換行與空白
+#            cleaned = match.group(1)
+#            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+#            prompts.append(cleaned)#
+#
+#    return prompts
+
+def extract_all_image_prompts(script: str, scene_count: int, min_length: int = 30):
     prompts = []
     for i in range(1, scene_count + 1):
         pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
-        match = re.search(pattern, script, flags=re.DOTALL | re.IGNORECASE)#
+        match = re.search(pattern, script, flags=re.DOTALL)
 
         if not match:
             prompts.append("")
-        else:
-            # 清掉 markdown、前後多餘換行與空白
-            cleaned = match.group(1)
-            cleaned = re.sub(r"\s+", " ", cleaned).strip()
-            prompts.append(cleaned)#
+            continue
+
+        # ---------- ① 清理內容 ----------
+        cleaned = match.group(1)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+        # ---------- ② 過濾過短內容（一定是錯的） ----------
+        if len(cleaned) < min_length:
+            print(f"[SKIP] image_prompt_{i} too short → '{cleaned}'")
+            prompts.append("")  # 讓這個場景變空，後面就不會送 Gemini
+            continue
+
+        # ---------- ③ 加入結果 ----------
+        prompts.append(cleaned)
 
     return prompts
 
