@@ -1009,10 +1009,11 @@ async def extract_image_prompts(payload: ExtractIn):
     print(f"🔍 Found {len(prompts)} image prompts")
 
     if not prompts or len(prompts) < payload.scene_count:
-    raise HTTPException(
-        status_code=422,
-        detail=f"找不到完整的 image_prompts（預期 {payload.scene_count} 個）"
-    )
+        raise HTTPException(
+            status_code=422,
+            detail="找不到完整的 image_prompts"
+        )
+
     forward = {
         "prompts": prompts,
         "images_per_prompt": payload.images_per_prompt,
