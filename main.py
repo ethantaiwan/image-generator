@@ -139,8 +139,32 @@ def extract_tag(text: str, tag: str) -> str | None:
 #
 #    return prompts
 
-def extract_all_image_prompts(script: str, scene_count: int, min_length: int = 30):
+def extract_all_image_prompts(script: str, scene_count: int):
+    def is_valid_prompt(text: str):
+        # 移除空白
+        t = text.strip()
+
+        # 至少要有 20 個「中文字」
+        chinese_chars = re.findall(r"[\u4e00-\u9fff]", t)
+        if len(chinese_chars) < 20:
+            return False
+
+        # 禁止完全由短語構成
+        if len(t) < 25:
+            return False
+
+        # 不允許只有一兩個詞（例如：喀、忙碌生活也能做到）
+        if len(t.split()) <= 2 and len(t) < 30:
+            return False
+
+        # 不允許純標語
+        if any(bad in t for bad in ["喀", "忙碌生活", "看不清字"]):
+            return False
+
+        return True
+
     prompts = []
+
     for i in range(1, scene_count + 1):
         pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
         match = re.search(pattern, script, flags=re.DOTALL)
@@ -149,20 +173,18 @@ def extract_all_image_prompts(script: str, scene_count: int, min_length: int = 3
             prompts.append("")
             continue
 
-        # ---------- ① 清理內容 ----------
-        cleaned = match.group(1)
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        cleaned = re.sub(r"\s+", " ", match.group(1)).strip()
 
-        # ---------- ② 過濾過短內容（一定是錯的） ----------
-        if len(cleaned) < min_length:
-            print(f"[SKIP] image_prompt_{i} too short → '{cleaned}'")
-            prompts.append("")  # 讓這個場景變空，後面就不會送 Gemini
+        # --- ❗ 在這裡跑強化過濾 ---
+        if not is_valid_prompt(cleaned):
+            print(f"[SKIP] image_prompt_{i} invalid → '{cleaned}'")
+            prompts.append("")
             continue
 
-        # ---------- ③ 加入結果 ----------
         prompts.append(cleaned)
 
     return prompts
+
 
 
 
