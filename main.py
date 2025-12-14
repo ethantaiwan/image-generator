@@ -231,12 +231,13 @@ class ScriptPayload(BaseModel):
     naming: Literal["scene", "sequence"] = "scene"
     aspect_ratio: str = Field("16:9", description="圖片比例 e.g., 16:9, 9:16")
 
-class ExtractIn(BaseModel):
-    result: str = Field(..., description="整段 storyboard 文字，內含多個 image_prompt 區塊")
-    images_per_prompt: int = Field(1, ge=1)
-    start_index: int = Field(0, ge=0)
-    naming: Literal["scene", "sequence"] = "scene"
 
+class ExtractIn(BaseModel):
+    result: str
+    scene_count: int
+    images_per_prompt: int = 1
+    start_index: int = 0
+    naming: Literal["scene","sequence"] = "scene"
 class ExtractOut(BaseModel):
     prompts: List[str]
     images_per_prompt: int
@@ -1053,21 +1054,13 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
 #####
 @app.post("/extract_image_prompts", response_model=ExtractOut)
 async def extract_image_prompts(payload: ExtractIn):
-    # 1️⃣ 依照場景數抽取 image_prompt_X
 
-    prompts = extract_all_image_prompts(script, payload.scene_count)
+    script = payload.result
+    scene_count = payload.scene_count
 
+    prompts = extract_all_image_prompts(script, scene_count)
 
-
-    print("\n================== [Extract Prompt Debug] ==================")
-    print(f"📝 Input Script Length: {len(script)} chars")
-    print(f"🔍 Found {len(prompts)} image prompts")
-
-    if not prompts or len(prompts) < payload.scene_count:
-        raise HTTPException(
-            status_code=422,
-            detail="找不到完整的 image_prompts"
-        )
+    print(f"[DEBUG] Extracted {len(prompts)} prompts")
 
     forward = {
         "prompts": prompts,
@@ -1075,9 +1068,9 @@ async def extract_image_prompts(payload: ExtractIn):
         "start_index": payload.start_index,
         "naming": payload.naming,
     }
-    # ✅ 在這裡檢查 forward_body 是否可用於 generate_images_from_prompts
+
     validate_forward_body(forward)
-    
+
     return ExtractOut(
         prompts=prompts,
         images_per_prompt=payload.images_per_prompt,
@@ -1086,11 +1079,16 @@ async def extract_image_prompts(payload: ExtractIn):
         forward_body=forward,
     )
 
+
 @app.post("/extract_then_generate")
 async def extract_then_generate(payload: ScriptPayload):
     # 1️⃣ 從腳本文字中抽取 image_prompts
     text = (payload.result or "").strip()
-    prompts = parse_image_prompts(text)
+    #prompts = parse_image_prompts(text)
+    # 🔥 你要前端傳 scene_count
+    scene_count = 4
+    prompts = extract_all_image_prompts(text, scene_count)
+
     # ★★★ 新增 Log：印出提取結果 ★★★
     print(f"\n{'='*20} [Extract Prompt Debug] {'='*20}")
     print(f"📝 Input Script Length: {len(text)} chars")
