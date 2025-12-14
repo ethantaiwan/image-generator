@@ -120,28 +120,17 @@ def extract_tag(text: str, tag: str) -> str | None:
 #            print(f"⚠️ Missing {tag}")
 #    return prompts
 # 修正 針對Image_prompt_?
-def extract_all_image_prompts(text: str, scene_count: int):
+def extract_all_image_prompts(script: str, scene_count: int):
     prompts = []
-
     for i in range(1, scene_count + 1):
-        start_tag = f"<image_prompt_{i}>"
-        end_tag = f"</image_prompt_{i}>"
-
-        start = text.find(start_tag)
-        end = text.find(end_tag)
-
-        if start == -1 or end == -1:
-            raise ValueError(f"找不到 image_prompt_{i} 的標籤")
-
-        # 取得標籤內部的內容
-        content = text[start + len(start_tag): end].strip()
-
-        if not content:
-            raise ValueError(f"image_prompt_{i} 內容是空的")
-
-        prompts.append(content)
-
+        pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
+        match = re.search(pattern, script, flags=re.DOTALL)
+        if not match:
+            prompts.append("")
+        else:
+            prompts.append(match.group(1).strip())
     return prompts
+
 
 
 def parse_image_prompts(text: str) -> List[str]:
