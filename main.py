@@ -8,7 +8,6 @@ import base64
 import uuid
 #from pydantic import BaseModel, FieldScriptPayload
 from pydantic import BaseModel, Field  
-
 from typing import Any, Dict, List, Union, Optional, Literal
 import re
 import io
@@ -375,6 +374,48 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         return None
 
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
+
+
+async def gemini_image_generation_with_retry(
+    prompt: str,
+    *,
+    aspect_ratio: str,
+    max_retries: int = 3,
+    base_delay: float = 1.0,  # 秒
+) -> List[str]:
+    """
+    專門處理 Gemini 偶發不回 image 的 retry wrapper
+    """
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            images = gemini_image_generation(
+                prompt,
+                count=1,
+                aspect_ratio=aspect_ratio
+            )
+
+            if images:
+                print(f"[Gemini Retry] success on attempt {attempt}")
+                return images
+
+            # 沒 exception 但沒圖 → 視為失敗
+            last_error = RuntimeError("Gemini returned empty image list")
+
+        except Exception as e:
+            last_error = e
+
+        # 還沒成功 → 等一下再試
+        if attempt < max_retries:
+            delay = base_delay * (2 ** (attempt - 1))  # exponential backoff
+            print(
+                f"[Gemini Retry] attempt {attempt} failed, retrying in {delay:.1f}s"
+            )
+            await asyncio.sleep(delay)
+
+    # 全部失敗
+    raise last_error or RuntimeError("Gemini image generation failed after retries")
 
 # 要多傳入 ratio_variable
 SAFE_PREFIX = (
@@ -1008,6 +1049,7 @@ async def generate_images_from_prompts(payload: BatchPromptsPayload):
         "results": results 
     }
 async def generate_images_from_prompts_internal(body: dict) -> dict:
+    
     # 🧩 第二層驗證：再檢查一次結構正確性
     validate_forward_body(body)
 
@@ -1023,6 +1065,12 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
     for i, prompt in enumerate(prompts):
         try:
             images = gemini_image_generation(prompt, count=1,aspect_ratio=aspect_ratio)  # 固定 count=1
+            images = await gemini_image_generation_with_retry(
+                prompt,
+                aspect_ratio=aspect_ratio,
+                max_retries=3
+            )
+
             if not images:
                 raise ValueError("無圖片返回")
 
