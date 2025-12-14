@@ -140,50 +140,40 @@ def extract_tag(text: str, tag: str) -> str | None:
 #    return prompts
 
 def extract_all_image_prompts(script: str, scene_count: int):
-    def is_valid_prompt(text: str):
-        # 移除空白
-        t = text.strip()
-
-        # 至少要有 20 個「中文字」
-        chinese_chars = re.findall(r"[\u4e00-\u9fff]", t)
-        if len(chinese_chars) < 20:
-            return False
-
-        # 禁止完全由短語構成
-        if len(t) < 25:
-            return False
-
-        # 不允許只有一兩個詞（例如：喀、忙碌生活也能做到）
-        if len(t.split()) <= 2 and len(t) < 30:
-            return False
-
-        # 不允許純標語
-        if any(bad in t for bad in ["喀", "忙碌生活", "看不清字"]):
-            return False
-
-        return True
-
     prompts = []
-
     for i in range(1, scene_count + 1):
-        pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
-        match = re.search(pattern, script, flags=re.DOTALL)
 
-        if not match:
+        # 找到完整 tag 區域
+        full_pattern = rf"<image_prompt_{i}>(.*?)</image_prompt_{i}>"
+        block = re.search(full_pattern, script, flags=re.DOTALL)
+
+        if not block:
             prompts.append("")
             continue
 
-        cleaned = re.sub(r"\s+", " ", match.group(1)).strip()
+        block_text = block.group(1)
 
-        # --- ❗ 在這裡跑強化過濾 ---
-        if not is_valid_prompt(cleaned):
-            print(f"[SKIP] image_prompt_{i} invalid → '{cleaned}'")
+        # 強制只抓第一個 "image_prompt:" 後的段落
+        inner = re.search(r"image_prompt:\s*(.*)", block_text, flags=re.DOTALL)
+        if not inner:
             prompts.append("")
             continue
 
-        prompts.append(cleaned)
+        prompt_raw = inner.group(1)
+
+        # 遇到下一個 "<" 表示模型亂插入 → 立即截斷
+        prompt_clean = prompt_raw.split("<")[0].strip()
+
+        # 過濾太短、太怪的 prompt
+        if len(prompt_clean) < 30 or len(re.findall(r"[\u4e00-\u9fff]", prompt_clean)) < 15:
+            print(f"[SKIP INVALID PROMPT {i}] → {prompt_clean}")
+            prompts.append("")
+            continue
+
+        prompts.append(prompt_clean)
 
     return prompts
+
 
 
 
