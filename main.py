@@ -108,17 +108,41 @@ def extract_tag(text: str, tag: str) -> str | None:
     m = re.search(pattern, text, flags=re.DOTALL)
     return m.group(1).strip() if m else None
 
-
-def extract_all_image_prompts(script: str, scene_count: int):
+## 只有其中一組時 就可這項寫
+#def extract_all_image_prompts(script: str, scene_count: int):
+#    prompts = []
+#    for i in range(1, scene_count + 1):
+#        tag = f"image_prompt_{i}"
+#        p = extract_tag(script, tag)
+#        if p:
+#            prompts.append(p)
+#        else:
+#            print(f"⚠️ Missing {tag}")
+#    return prompts
+# 修正 針對Image_prompt_?
+def extract_all_image_prompts(text: str, scene_count: int):
     prompts = []
+
     for i in range(1, scene_count + 1):
-        tag = f"image_prompt_{i}"
-        p = extract_tag(script, tag)
-        if p:
-            prompts.append(p)
-        else:
-            print(f"⚠️ Missing {tag}")
+        start_tag = f"<image_prompt_{i}>"
+        end_tag = f"</image_prompt_{i}>"
+
+        start = text.find(start_tag)
+        end = text.find(end_tag)
+
+        if start == -1 or end == -1:
+            raise ValueError(f"找不到 image_prompt_{i} 的標籤")
+
+        # 取得標籤內部的內容
+        content = text[start + len(start_tag): end].strip()
+
+        if not content:
+            raise ValueError(f"image_prompt_{i} 內容是空的")
+
+        prompts.append(content)
+
     return prompts
+
 
 def parse_image_prompts(text: str) -> List[str]:
     text = text.replace('\r\n', '\n')
