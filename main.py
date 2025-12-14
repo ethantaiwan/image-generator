@@ -139,45 +139,59 @@ def extract_tag(text: str, tag: str) -> str | None:
 #
 #    return prompts
 
+import re
+
 def extract_all_image_prompts(script: str, scene_count: int):
     prompts = []
+
     for i in range(1, scene_count + 1):
 
-        # 找到完整 tag 區域
-        full_pattern = rf"<image_prompt_{i}>(.*?)</image_prompt_{i}>"
-        block = re.search(full_pattern, script, flags=re.DOTALL)
+        # --------------------------------------------------
+        # (1) 只抓取完整 tag 區塊
+        # --------------------------------------------------
+        block_pattern = rf"<image_prompt_{i}>(.*?)</image_prompt_{i}>"
+        block = re.search(block_pattern, script, flags=re.DOTALL)
 
         if not block:
-            prompts.append("")
+            prompts.append("")   # 保留位置
             continue
 
-        block_text = block.group(1)
+        block_text = block.group(1).strip()
 
-        # 強制只抓第一個 "image_prompt:" 後的段落
+        # --------------------------------------------------
+        # (2) 僅抽取 image_prompt: 後面的內容
+        # --------------------------------------------------
         inner = re.search(r"image_prompt:\s*(.*)", block_text, flags=re.DOTALL)
         if not inner:
             prompts.append("")
             continue
 
-        prompt_raw = inner.group(1)
+        prompt = inner.group(1).strip()
 
-        # 遇到下一個 "<" 表示模型亂插入 → 立即截斷
-        prompt_clean = prompt_raw.split("<")[0].strip()
+        # --------------------------------------------------
+        # (3) 若模型亂插 </ 或 <image_prompt 或其他 tag → 立刻截斷
+        # --------------------------------------------------
+        prompt = re.split(r"<|</|image_prompt", prompt)[0].strip()
 
-        # 過濾太短、太怪的 prompt
-        if len(prompt_clean) < 30 or len(re.findall(r"[\u4e00-\u9fff]", prompt_clean)) < 15:
-            print(f"[SKIP INVALID PROMPT {i}] → {prompt_clean}")
+        # --------------------------------------------------
+        # (4) 過濾掉垃圾 prompt（短句 / 太少中文字 / 禁字）
+        # --------------------------------------------------
+        if len(prompt) < 50:
+            prompts.append("")      # 垃圾 prompt → 丟掉
+            continue
+
+        if len(re.findall(r"[\u4e00-\u9fff]", prompt)) < 25:
+            prompts.append("")      # 中文太少 → 丟掉
+            continue
+
+        # 禁止含 video_prompt 或任何英文字母
+        if "video_prompt" in prompt or re.search(r"[A-Za-z]", prompt):
             prompts.append("")
             continue
 
-        prompts.append(prompt_clean)
+        prompts.append(prompt)
 
     return prompts
-
-
-
-
-
 
 def parse_image_prompts(text: str) -> List[str]:
     text = text.replace('\r\n', '\n')
