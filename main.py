@@ -123,22 +123,35 @@ def extract_tag(text: str, tag: str) -> str | None:
 
 
 
+#def extract_all_image_prompts(script: str, scene_count: int):
+#    prompts = []
+#    for i in range(1, scene_count + 1):
+#        pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
+#        match = re.search(pattern, script, flags=re.DOTALL | re.IGNORECASE)#
+#
+#        if not match:
+#            prompts.append("")
+#        else:
+#            # 清掉 markdown、前後多餘換行與空白
+#            cleaned = match.group(1)
+#            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+#            prompts.append(cleaned)#
+
+#    return prompts
+
 def extract_all_image_prompts(script: str, scene_count: int):
-    prompts = []
-    for i in range(1, scene_count + 1):
-        pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
-        match = re.search(pattern, script, flags=re.DOTALL | re.IGNORECASE)
+    prompts = {}
 
-        if not match:
-            prompts.append("")
-        else:
-            # 清掉 markdown、前後多餘換行與空白
-            cleaned = match.group(1)
-            cleaned = re.sub(r"\s+", " ", cleaned).strip()
-            prompts.append(cleaned)
+    # 僅抓「正牌」的 <image_prompt_X> ... </image_prompt_X>
+    pattern = r"<image_prompt_(\d+)>\s*image_prompt:\s*(.*?)\s*</image_prompt_\1>"
+    matches = re.findall(pattern, script, flags=re.DOTALL)
 
-    return prompts
+    for idx, content in matches:
+        cleaned = " ".join(content.split())  # 清乾淨空白
+        prompts[int(idx)] = cleaned
 
+    # 按順序回傳
+    return [prompts.get(i, "") for i in range(1, scene_count + 1)]
 
 
 def parse_image_prompts(text: str) -> List[str]:
