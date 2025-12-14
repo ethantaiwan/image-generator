@@ -120,15 +120,21 @@ def extract_tag(text: str, tag: str) -> str | None:
 #            print(f"⚠️ Missing {tag}")
 #    return prompts
 # 修正 針對Image_prompt_?
+
+
 def extract_all_image_prompts(script: str, scene_count: int):
     prompts = []
+
     for i in range(1, scene_count + 1):
-        pattern = rf"<image_prompt_{i}>\s*image_prompt:\s*(.*?)\s*</image_prompt_{i}>"
+        pattern = rf"<image_{i}>\s*(.*?)\s*</image_{i}>"
         match = re.search(pattern, script, flags=re.DOTALL)
+
         if not match:
+            print(f"⚠️ Scene {i} 找不到 image_{i} 標籤")
             prompts.append("")
         else:
             prompts.append(match.group(1).strip())
+
     return prompts
 
 
