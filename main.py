@@ -16,11 +16,19 @@ import httpx # 確保 httpx 已安裝並導入
 from fastapi import Body
 
 # --- 環境變數設定和初始化 ---
-# 確保 GOOGLE_API_KEY 是您的環境變數名稱
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
+#新增client
+def get_gemini_client():
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY missing at runtime")
+    return genai.Client(api_key=api_key)
 
-if not GOOGLE_API_KEY:
-    raise ValueError("GEMINI_API_KEY environment variable not set.")
+# 確保 GOOGLE_API_KEY 是您的環境變數名稱
+
+#GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
+
+#if not GOOGLE_API_KEY:
+#    raise ValueError("GEMINI_API_KEY environment variable not set.")
 
 
 
@@ -43,23 +51,23 @@ from google.genai.errors import APIError
 
 # 確保 API Key 存在
 # ⚠️ 請將 'YOUR_GOOGLE_API_KEY' 替換為您環境變數的名稱，或直接設置
-try:
-    if not GOOGLE_API_KEY:
+#try:
+#    if not GOOGLE_API_KEY:
          # 如果環境變數未設定，您可以手動在這裡填入您的 KEY 進行測試
          # ⚠️ 僅用於測試，生產環境請使用環境變數
          # GOOGLE_API_KEY = "AIzaSy..."
-         if not GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY 環境變數未設定。")
-except Exception as e:
+#         if not GOOGLE_API_KEY:
+#            raise ValueError("GOOGLE_API_KEY 環境變數未設定。")
+#except Exception as e:
      # 如果您在 Colab/Jupyter 中運行，可能需要手動定義 GOOGLE_API_KEY 
      # 否則這行程式碼會因為找不到變數而報錯
      # 假設您在 Colab/Jupyter 中已經定義了 GOOGLE_API_KEY
-     print("API Key 配置跳過環境變數檢查，請確保變數 GOOGLE_API_KEY 已存在於您的執行環境中。")
+#     print("API Key 配置跳過環境變數檢查，請確保變數 GOOGLE_API_KEY 已存在於您的執行環境中。")
      # 為了讓程式碼通過，這裡假設 GOOGLE_API_KEY 變數已經在 Notebook 前面定義了。
 
 
 # Gemini 初始化
-client = genai.Client(api_key=GOOGLE_API_KEY)
+#client = genai.Client(api_key=GOOGLE_API_KEY)
 
 # 使用者指定的模型
 #MODEL_NAME = os.getenv("model_name") 
@@ -449,6 +457,7 @@ def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16
     # 依需求產生多張
     for _ in range(max(1, count)):
         try:
+            client = get_gemini_client()
             resp = client.models.generate_content(
                 model=model,
                 contents=[final_prompt], # 使用包含比例的 Prompt
@@ -499,7 +508,7 @@ def gemini_image_editing(
 ) -> Optional[str]:
     #model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     model = os.getenv("model_name") 
-
+    client = get_gemini_client()
     resp = client.models.generate_content(
         model=model,
         contents=[
