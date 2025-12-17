@@ -388,8 +388,8 @@ async def gemini_image_generation_with_retry(
     prompt: str,
     *,
     aspect_ratio: str,
-    max_retries: int = 3,
-    base_delay: float = 1.0,  # 秒
+    max_retries: int = 5, # was 3
+    base_delay: float = 0.6,  # 秒 # was 1
 ) -> List[str]:
     """
     專門處理 Gemini 偶發不回 image 的 retry wrapper
