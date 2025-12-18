@@ -861,11 +861,19 @@ async def edit_image_and_store(
     # 步驟 D: 最終回傳
     final_urls = [stored_url]
 
+    #return {
+    #    "message": f"Successfully edited and stored image to disk (Index {target_index}).",
+    #    "edit_prompt": edit_prompt,
+    #    "image_url": edited_image_data_url, # 編輯後的 Base64 Data URL
+    #    "uploaded_urls": final_urls          # 編輯後圖片的公開存取 URL
+    #}
+    # 12/18 後修改
+
     return {
         "message": f"Successfully edited and stored image to disk (Index {target_index}).",
         "edit_prompt": edit_prompt,
-        "image_url": edited_image_data_url, # 編輯後的 Base64 Data URL
-        "uploaded_urls": final_urls          # 編輯後圖片的公開存取 URL
+        "image_url": edited_image_data_url, # <--- 兇手是這行！這個 Base64 字串太大了
+        "uploaded_urls": final_urls
     }
 
 @app.post("/generate_image_store", response_model=Dict[str, Any])
