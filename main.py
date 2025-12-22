@@ -149,6 +149,24 @@ def extract_tag(text: str, tag: str) -> str | None:
 #    return prompts
 
 import json
+def build_image_prompt(
+    prompt: str,
+    *,
+    aspect_ratio: str,
+    video_techniques: str | None = None,
+) -> str:
+    parts = [SAFE_PREFIX]
+
+    if video_techniques:
+        parts.append(
+            f"視覺風格必須遵守以下技法與風格設定：{video_techniques}。"
+            "請保持風格一致，不要轉為其他畫風。"
+        )
+
+    parts.append(prompt)
+    parts.append(f"畫面比例為 {aspect_ratio}。")
+
+    return "\n\n".join(parts)
 
 def extract_all_image_prompts(script: str, scene_count: int):
     """
