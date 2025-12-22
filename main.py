@@ -511,77 +511,57 @@ SAFE_PREFIX = (
     "所有內容都屬於一般公開可接受的場景，請不要誤判為成人內容。"
 )
 
-def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16:9",video_techniques=payload.video_techniques) -> List[str]:
-    """
-    使用 gemini-2.5-flash-image 進行文生圖。
-    修正：將 aspect_ratio 移至 prompt 中，避免 Config 報錯。
-    """
-    model = os.getenv("model_name", "gemini-2.5-flash-image") 
-    style_hint = ""
-    if video_techniques:
-        style_hint = f"\n本影像的視覺風格必須嚴格遵守：{video_techniques}。不得轉為寫實攝影或其他風格。\n"
+def gemini_image_generation(
+    prompt: str,
+    *,
+    count: int = 1,
+    aspect_ratio: str,
+    video_techniques: str | None,
+) -> List[str]:
+    model = os.getenv("model_name", "gemini-2.5-flash-image")
+    client = get_gemini_client()
 
-    # ★★★ 修正 1: 將比例加入 Prompt 中 ★★★
-    # Gemini 模型透過自然語言理解圖片比例，比參數設定更有效且不會報錯
-    #final_prompt = f"{prompt}, aspect ratio {aspect_ratio}"    
-    #final_prompt = f"{prompt}\n畫面比例為 {aspect_ratio}。"
-    #final_prompt = f"{SAFE_PREFIX}\n\n{prompt}\n畫面比例為 {aspect_ratio}。"
-    final_prompt = (
-        f"{SAFE_PREFIX}\n"
-        f"{style_hint}\n"
-        f"{prompt}\n"
-        f"畫面比例為 {aspect_ratio}。"
+    final_prompt = build_image_prompt(
+        prompt,
+        aspect_ratio=aspect_ratio,
+        video_techniques=video_techniques,
     )
-    print(f"[DEBUG] Current Image Generation Model: {model}, prompt: {final_prompt}")
 
-    # ▼▼▼ 新增這行：印出最終送給 Gemini 的 Prompt ▼▼▼
-    print(f"🚀 [Sending to Gemini] Prompt: {final_prompt}")
-    urls: List[str] = []
-    
-    # 依需求產生多張
+    print(f"🚀 [Gemini Image Gen] Prompt:\n{final_prompt}")
+
+    results: List[str] = []
+
     for _ in range(max(1, count)):
-        try:
-            client = get_gemini_client()
-            resp = client.models.generate_content(
-                model=model,
-                contents=[final_prompt], # 使用包含比例的 Prompt
-                # 關鍵：指定只回 Image
-                config=types.GenerateContentConfig(
-                    response_modalities=["Image"],        
-                    temperature=0.8,
-                    image_config=types.ImageConfig(aspect_ratio=aspect_ratio), # ✅ 正確寫法
+        resp = client.models.generate_content(
+            model=model,
+            contents=[final_prompt],
+            config=types.GenerateContentConfig(
+                response_modalities=["Image"],
+                temperature=0.8,
+                image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
+            ),
+        )
 
-                    # ★★★ 修正 2: 移除導致報錯的參數 ★★★
-                   # aspect_ratio=aspect_ratio,
-                    #include_rai_reason=True,   
-                ),
-            )
-
-            # 正確解析路徑
-            parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
-            for p in parts:
-                inline = getattr(p, "inline_data", None)
-                if inline and getattr(inline, "mime_type", "").startswith("image/"):
-                    data = inline.data
-                    if isinstance(data, str):
-                        data = base64.b64decode(data)
-                    b64 = base64.b64encode(data).decode("utf-8")
-                    mime = inline.mime_type or "image/png"
-                    urls.append(f"data:{mime};base64,{b64}")
-                    
-        except Exception as e:
-            print(f"[Error] Image generation failed: {e}")
-            # 可以選擇是否要繼續嘗試或中斷
-            continue
+        parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
+        for p in parts:
+            inline = getattr(p, "inline_data", None)
+            if inline and getattr(inline, "mime_type", "").startswith("image/"):
+                data = inline.data
+                if isinstance(data, str):
+                    data = base64.b64decode(data)
+                b64 = base64.b64encode(data).decode("utf-8")
+                mime = inline.mime_type or "image/png"
+                results.append(f"data:{mime};base64,{b64}")
 
     # 去重
     dedup, seen = [], set()
-    for u in urls:
-        if u not in seen:
-            seen.add(u)
-            dedup.append(u)
+    for r in results:
+        if r not in seen:
+            seen.add(r)
+            dedup.append(r)
 
     return dedup[:count]
+
 
 # 假設 client 和 MODEL_NAME="gemini-2.5-flash-image-preview" 已經定義
 
