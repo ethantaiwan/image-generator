@@ -414,11 +414,15 @@ async def run_with_retry(
             await asyncio.sleep(delay)
 
     raise last_error or RuntimeError(f"{label} failed after retries")
+
+
 async def gemini_image_generation_with_retry(
     prompt: str,
     *,
     aspect_ratio: str,
     video_techniques: str,
+    max_retries: int = 5,
+    base_delay: float = 0.6,
 ) -> List[str]:
 
     async def action():
@@ -432,7 +436,10 @@ async def gemini_image_generation_with_retry(
     return await run_with_retry(
         action,
         label="Gemini Image Generation",
+        max_retries=max_retries,
+        base_delay=base_delay,
     )
+
 
 
 #async def gemini_image_generation_with_retry(
@@ -486,6 +493,8 @@ async def gemini_image_editing_with_retry(
     image_mime_type: str,
     aspect_ratio: str,
     video_techniques: str,
+    max_retries: int = 5,
+    base_delay: float = 0.6,
 ) -> Optional[str]:
 
     async def action():
@@ -493,12 +502,12 @@ async def gemini_image_editing_with_retry(
             edit_prompt=edit_prompt,
             original_image_bytes=original_image_bytes,
             image_mime_type=image_mime_type,
-            aspect_ratio=aspect_ratio,
-            video_techniques=video_techniques,
         )
 
     return await run_with_retry(
         action,
+        max_retries=max_retries,
+        base_delay=base_delay,
         label="Gemini Image Editing",
     )
 
@@ -516,7 +525,7 @@ def gemini_image_generation(
     *,
     count: int = 1,
     aspect_ratio: str,
-    video_techniques: str | None,
+    video_techniques: str | None = None,
 ) -> List[str]:
     model = os.getenv("model_name", "gemini-2.5-flash-image")
     client = get_gemini_client()
@@ -994,7 +1003,7 @@ async def generate_image_store(
     full_prompt = f"{payload.description}. {base_prompt}"
     
     # 獲取 Base64 Data URLs
-    images = gemini_image_generation(full_prompt, count=payload.image_count,video_techniques=payload.video_techniques)
+    images = gemini_image_generation(full_prompt, count=payload.image_count,aspect_ratio=payload.aspect_ratio,video_techniques=payload.video_techniques)
 
     if not images:
         raise HTTPException(
@@ -1163,6 +1172,10 @@ async def generate_images_from_prompts(payload: BatchPromptsPayload):
         "message": f"Processed {len(payload.prompts)} prompts; saved {total_ok} images; {total_err} issues.",
         "n_prompts": len(payload.prompts),
         "images_per_prompt": payload.images_per_prompt,
+
+
+
+        
         "naming": payload.naming,
         "start_index": payload.start_index,
         "results": results 
@@ -1187,7 +1200,9 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
             images = await gemini_image_generation_with_retry(
                 prompt,
                 aspect_ratio=aspect_ratio,
-                max_retries=5
+                video_techniques=video_techniques,
+                max_retries=5,
+                base_delay=0.6
             )
 
             if not images:
@@ -1269,8 +1284,11 @@ async def extract_then_generate(payload: ScriptPayload):
         "images_per_prompt": 1,  # 🔒 固定只生一張
         "start_index": payload.start_index,
         "naming": payload.naming,
-        "aspect_ratio": payload.aspect_ratio
+        "aspect_ratio": payload.aspect_ratio,
+        "video_techniques": payload.video_techniques
 
+        
+    
     }
     validate_forward_body(forward_body)  # ✅ ← 在這裡被呼叫！
 
