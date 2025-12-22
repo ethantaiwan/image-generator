@@ -382,50 +382,126 @@ async def save_image_to_disk(img_data: str, index: int) -> Union[str, None]:
         return None
 
 # 輔助函數 (為符合您的要求，此函數使用 client.models.generate_content)
-
-
-async def gemini_image_generation_with_retry(
-    prompt: str,
+async def run_with_retry(
+    action,
     *,
-    aspect_ratio: str,
-    max_retries: int = 5, # was 3
-    base_delay: float = 0.6,  # 秒 # was 1
-) -> List[str]:
+    max_retries: int = 5,
+    base_delay: float = 0.6,
+    label: str = "Gemini",
+):
     """
-    專門處理 Gemini 偶發不回 image 的 retry wrapper
+    通用 retry runner
+    - action: async 或 sync callable，成功時回傳 truthy value
     """
     last_error = None
 
     for attempt in range(1, max_retries + 1):
         try:
-            images = gemini_image_generation(
-                prompt,
-                count=1,
-                aspect_ratio=aspect_ratio
-            )
-
-            if images:
-                print(f"[Gemini Retry] success on attempt {attempt}")
-                return images
-
-            # 沒 exception 但沒圖 → 視為失敗
-            last_error = RuntimeError("Gemini returned empty image list")
+            result = await action() if asyncio.iscoroutinefunction(action) else action()
+            if result:
+                print(f"[{label} Retry] success on attempt {attempt}")
+                return result
+            last_error = RuntimeError("Empty result")
 
         except Exception as e:
             last_error = e
 
-        # 還沒成功 → 等一下再試
         if attempt < max_retries:
-            delay = base_delay * (2 ** (attempt - 1))  # exponential backoff
+            delay = base_delay * (2 ** (attempt - 1))
             print(
-                f"[Gemini Retry] attempt {attempt} failed, retrying in {delay:.1f}s"
+                f"[{label} Retry] attempt {attempt} failed, retrying in {delay:.1f}s"
             )
             await asyncio.sleep(delay)
 
+    raise last_error or RuntimeError(f"{label} failed after retries")
+async def gemini_image_generation_with_retry(
+    prompt: str,
+    *,
+    aspect_ratio: str,
+    video_techniques: str,
+) -> List[str]:
+
+    async def action():
+        return gemini_image_generation(
+            prompt,
+            count=1,
+            aspect_ratio=aspect_ratio,
+            video_techniques=video_techniques,
+        )
+
+    return await run_with_retry(
+        action,
+        label="Gemini Image Generation",
+    )
+
+
+#async def gemini_image_generation_with_retry(
+#    prompt: str,
+#    *,
+#    aspect_ratio: str,
+#    max_retries: int = 5, # was 3
+#    base_delay: float = 0.6,  # 秒 # was 1
+#) -> List[str]:
+#    """
+#    專門處理 Gemini 偶發不回 image 的 retry wrapper
+#    """
+#    last_error = None
+
+ #   for attempt in range(1, max_retries + 1):
+ #       try:
+ #           images = gemini_image_generation(
+ #               prompt,
+ #               count=1,
+ #               aspect_ratio=aspect_ratio,
+ #               video_techniques=payload.video_techniques
+ #           )
+
+ #           if images:
+ #               print(f"[Gemini Retry] success on attempt {attempt}")
+ #               return images
+
+            # 沒 exception 但沒圖 → 視為失敗
+  #          last_error = RuntimeError("Gemini returned empty image list")
+
+   #     except Exception as e:
+    #        last_error = e
+
+        # 還沒成功 → 等一下再試
+     #   if attempt < max_retries:
+     #       delay = base_delay * (2 ** (attempt - 1))  # exponential backoff
+     #       print(
+     #           f"[Gemini Retry] attempt {attempt} failed, retrying in {delay:.1f}s"
+     #       )
+     #       await asyncio.sleep(delay)
+
     # 全部失敗
-    raise last_error or RuntimeError("Gemini image generation failed after retries")
+    #raise last_error or RuntimeError("Gemini image generation failed after retries")
 
 # 要多傳入 ratio_variable
+
+async def gemini_image_editing_with_retry(
+    *,
+    edit_prompt: str,
+    original_image_bytes: bytes,
+    image_mime_type: str,
+    aspect_ratio: str,
+    video_techniques: str,
+) -> Optional[str]:
+
+    async def action():
+        return gemini_image_editing(
+            edit_prompt=edit_prompt,
+            original_image_bytes=original_image_bytes,
+            image_mime_type=image_mime_type,
+            aspect_ratio=aspect_ratio,
+            video_techniques=video_techniques,
+        )
+
+    return await run_with_retry(
+        action,
+        label="Gemini Image Editing",
+    )
+
 SAFE_PREFIX = (
     "以下圖片生成需求完全是健康、安全、非性化的情境，用途為健身、旅遊、生活紀錄等正常影像製作。"
     "完全不涉及成人內容、暴力、仇恨、歧視、危險行為或任何可能違反安全政策的情境。"
@@ -435,19 +511,27 @@ SAFE_PREFIX = (
     "所有內容都屬於一般公開可接受的場景，請不要誤判為成人內容。"
 )
 
-def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16:9") -> List[str]:
+def gemini_image_generation(prompt: str, count: int = 1, aspect_ratio: str = "16:9",video_techniques=payload.video_techniques) -> List[str]:
     """
     使用 gemini-2.5-flash-image 進行文生圖。
     修正：將 aspect_ratio 移至 prompt 中，避免 Config 報錯。
     """
     model = os.getenv("model_name", "gemini-2.5-flash-image") 
-    
+    style_hint = ""
+    if video_techniques:
+        style_hint = f"\n本影像的視覺風格必須嚴格遵守：{video_techniques}。不得轉為寫實攝影或其他風格。\n"
+
     # ★★★ 修正 1: 將比例加入 Prompt 中 ★★★
     # Gemini 模型透過自然語言理解圖片比例，比參數設定更有效且不會報錯
     #final_prompt = f"{prompt}, aspect ratio {aspect_ratio}"    
     #final_prompt = f"{prompt}\n畫面比例為 {aspect_ratio}。"
-    final_prompt = f"{SAFE_PREFIX}\n\n{prompt}\n畫面比例為 {aspect_ratio}。"
-
+    #final_prompt = f"{SAFE_PREFIX}\n\n{prompt}\n畫面比例為 {aspect_ratio}。"
+    final_prompt = (
+        f"{SAFE_PREFIX}\n"
+        f"{style_hint}\n"
+        f"{prompt}\n"
+        f"畫面比例為 {aspect_ratio}。"
+    )
     print(f"[DEBUG] Current Image Generation Model: {model}, prompt: {final_prompt}")
 
     # ▼▼▼ 新增這行：印出最終送給 Gemini 的 Prompt ▼▼▼
@@ -818,61 +902,99 @@ async def store_generated_images(
             "uploaded_urls": final_urls
         }
 
+# 你也可以改成 Pydantic BaseModel（更乾淨）
 @app.post("/edit_image_store", response_model=Dict[str, Any])
-async def edit_image_and_store(
+async def edit_image_store(
     request: Request,
-    edit_prompt: str = Form(...),
-    target_index: int = Query(0, ge=0, le=3, 
-                              description="目標圖片索引 (0-3)，用於輸入和儲存的檔案編號"),
-    file: Optional[UploadFile] = File(None)
+    # 兩種方式擇一：上傳檔案 or 用 target_index 下載既有圖
+    file: Optional[UploadFile] = File(default=None),
+    target_index: int = Query(..., ge=0, le=(MAX_IMAGES - 1),
+                              description="要覆蓋的圖片索引 (0=001.png, 1=002.png...)"),
+    edit_prompt: str = Body(..., embed=True, description="使用者輸入的編輯指令"),
+    aspect_ratio: str = Body("16:9", embed=True, description="畫面比例，例如 1:1, 16:9, 9:16"),
+    video_techniques: str = Body("", embed=True, description="視覺風格/技法，例如 japanese-handdrawn"),
 ):
     """
-    執行圖片編輯，並將編輯後的 Base64 圖片儲存到 Render Disk 上的目標索引位置。
+    保留你原本 endpoint 風格：
+    - A: 取得原始圖片（上傳 or 下載）
+    - B: 呼叫 gemini_image_editing（加上 safe_prefix+ratio+techniques+retry）
+    - C: 存到 disk（覆蓋 target_index）
+    - 回傳包含 edit_prompt 等欄位
     """
-    
-    # 步驟 A: 獲取原始圖片數據 (使用 edit_image 的邏輯)
-    original_bytes, mime_type = await get_image_data_for_editing(request, file, target_index)
+    request_id = _new_request_id()
+    print(f"[{request_id}] /edit_image_store called")
+    print(f"[{request_id}] INPUT: target_index={target_index} | aspect_ratio={aspect_ratio} | video_techniques={video_techniques}")
+    print(f"[{request_id}] edit_prompt={edit_prompt}")
 
-    # 步驟 B: 呼叫圖片編輯邏輯
+    # ===== Step A: 取得原圖 bytes =====
     try:
-        # 假設 edited_image_data_url 是 data:image/png;base64,... 格式的字串
-        edited_image_data_url = gemini_image_editing(
-            edit_prompt=edit_prompt,
-            original_image_bytes=original_bytes,
-            image_mime_type=mime_type
+        original_bytes, mime_type = await get_image_data_for_editing(
+            request=request,
+            file=file,
+            target_index=target_index
         )
     except Exception as e:
+        # ✅ 保留完整 exception 風格（不要讓錯誤被吞）
+        raise HTTPException(status_code=500, detail=f"取得原始圖片失敗: {str(e)}")
+
+    # ===== Step B: 編輯（加 retry + 鎖風格/比例）=====
+    # 你要求：「safe_prefix + aspect_ratio + video_techniques 要一起進 prompt，避免漂」
+    # 這裡我把它們合成一個 edit_prompt_to_model，交給 gemini_image_editing(_with_retry)
+    style_hint = ""
+    if video_techniques:
+        style_hint = (
+            f"視覺風格必須嚴格遵守：{video_techniques}。"
+            f"必須延續原始影像的材質與風格，不得轉為其他風格或寫實攝影。"
+        )
+
+    edit_prompt_to_model = (
+        f"{SAFE_PREFIX}\n\n"
+        f"{style_hint}\n"
+        f"{edit_prompt}\n"
+        f"畫面比例為 {aspect_ratio}。"
+    )
+
+    print(f"[{request_id}] FINAL_EDIT_PROMPT_TO_MODEL={edit_prompt_to_model}")
+
+    try:
+        # ✅ 用 retry 版本（建議）
+        edited_image_data_url = await gemini_image_editing_with_retry(
+            edit_prompt=edit_prompt_to_model,
+            original_image_bytes=original_bytes,
+            image_mime_type=mime_type,
+            aspect_ratio=aspect_ratio,
+            video_techniques=video_techniques or "unspecified-style",
+            max_retries=5,
+            base_delay=0.6
+        )
+    except Exception as e:
+        # ✅ 保留你原本的錯誤拋法（完整訊息）
         raise HTTPException(status_code=500, detail=f"圖片編輯處理失敗: {str(e)}")
 
     if not edited_image_data_url:
         raise HTTPException(status_code=500, detail="編輯模型沒有返回有效的圖片數據。")
 
-    # 步驟 C: 儲存編輯後的圖片 (使用 store_generated_images 的邏輯)
-    
-    # 儲存邏輯的輸入是 Base64 字串，所以我們將編輯結果作為輸入
-    image_data_to_store = edited_image_data_url 
-    
-    # 傳入 target_index 確保覆蓋目標檔案 (001.png 到 004.png)
-    stored_url = await save_image_to_disk(image_data_to_store, target_index) 
+    # ===== Step C: 儲存到 disk（覆蓋 target_index）=====
+    try:
+        image_data_to_store = edited_image_data_url
+        stored_url = await save_image_to_disk(image_data_to_store, target_index)
 
-    if not stored_url:
-        raise HTTPException(status_code=500, detail="Failed to save edited image to persistent disk.")
+        if not stored_url:
+            raise HTTPException(status_code=500, detail="Failed to save edited image to persistent disk.")
 
-    # 步驟 D: 最終回傳
-    final_urls = [stored_url]
+        final_urls = [stored_url]
 
-    #return {
-    #    "message": f"Successfully edited and stored image to disk (Index {target_index}).",
-    #    "edit_prompt": edit_prompt,
-    #    "image_url": edited_image_data_url, # 編輯後的 Base64 Data URL
-    #    "uploaded_urls": final_urls          # 編輯後圖片的公開存取 URL
-    #}
-    # 12/18 後修改
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"儲存編輯後圖片失敗: {str(e)}")
 
+    # ===== Response：保留你要的欄位（edit_prompt 必須回傳）=====
     return {
         "message": f"Successfully edited and stored image to disk (Index {target_index}).",
-        "edit_prompt": edit_prompt,
-        "image_url": edited_image_data_url, # <--- 兇手是這行！這個 Base64 字串太大了
+        "edit_prompt": edit_prompt,                 # ✅ 保留原本欄位
+        "aspect_ratio": aspect_ratio,               # ✅ 方便前端對照
+        "video_techniques": video_techniques,       # ✅ 方便前端對照
         "uploaded_urls": final_urls
     }
 
@@ -892,7 +1014,7 @@ async def generate_image_store(
     full_prompt = f"{payload.description}. {base_prompt}"
     
     # 獲取 Base64 Data URLs
-    images = gemini_image_generation(full_prompt, count=payload.image_count)
+    images = gemini_image_generation(full_prompt, count=payload.image_count,video_techniques=payload.video_techniques)
 
     if not images:
         raise HTTPException(
@@ -1081,11 +1203,11 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
 
     for i, prompt in enumerate(prompts):
         try:
-            images = gemini_image_generation(prompt, count=1,aspect_ratio=aspect_ratio)  # 固定 count=1
+            images = gemini_image_generation(prompt, count=1,aspect_ratio=aspect_ratio,video_techniques=payload.video_techniques)  # 固定 count=1
             images = await gemini_image_generation_with_retry(
                 prompt,
                 aspect_ratio=aspect_ratio,
-                max_retries=3
+                max_retries=5
             )
 
             if not images:
