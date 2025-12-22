@@ -237,6 +237,7 @@ class ScriptPayload(BaseModel):
     start_index: int = Field(0, ge=0)
     naming: Literal["scene", "sequence"] = "scene"
     aspect_ratio: str = Field("16:9", description="圖片比例 e.g., 16:9, 9:16")
+    video_techniques: str = Field("", description="視覺風格/拍攝技法")
 
 
 class ExtractIn(BaseModel):
