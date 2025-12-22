@@ -89,10 +89,12 @@ origins = ["*"] # 允許所有來源 (用於測試)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,       
-    allow_credentials=True,      
+    allow_credentials=False,   # 🔥 關鍵
     allow_methods=["*"],         
     allow_headers=["*"],         
 )
+
+
 # ==========================================================
 # ⚙️ 數據模型與輔助函數
 # ==========================================================
@@ -1191,13 +1193,13 @@ async def generate_images_from_prompts_internal(body: dict) -> dict:
     start_index = body["start_index"]
     naming = body["naming"]
     aspect_ratio = body.get("aspect_ratio", "16:9") 
-
+    video_techniques = body.get("video_techniques", "realistic-photo")
     results = []
     current_index = start_index
 
     for i, prompt in enumerate(prompts):
         try:
-            images = gemini_image_generation(prompt, count=1,aspect_ratio=aspect_ratio,video_techniques=payload.video_techniques)  # 固定 count=1
+            images = gemini_image_generation(prompt, count=1,aspect_ratio=aspect_ratio,video_techniques=video_techniques)  # 固定 count=1
             images = await gemini_image_generation_with_retry(
                 prompt,
                 aspect_ratio=aspect_ratio,
