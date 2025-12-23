@@ -533,6 +533,8 @@ async def gemini_image_editing_with_retry(
         return gemini_image_editing(
             edit_prompt=edit_prompt,
             original_image_bytes=original_image_bytes,
+            aspect_ratio=aspect_ratio,                 
+            video_techniques=video_techniques,
             image_mime_type=image_mime_type,
         )
 
