@@ -609,23 +609,41 @@ def gemini_image_generation(
 def gemini_image_editing(
     edit_prompt: str,
     original_image_bytes: bytes,
+    *,
+    aspect_ratio: str,
+    video_techniques: str | None = None,
     image_mime_type: str = "image/jpeg"
 ) -> Optional[str]:
     #model = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
     model = os.getenv("model_name") 
     client = get_gemini_client()
+    #aspect_ratio = payload.aspect_ratio
+    #video_techniques = payload.video_techniques
+    final_prompt = build_image_prompt(
+        edit_prompt,
+        aspect_ratio=aspect_ratio,
+        video_techniques=video_techniques,
+    )
+
+    print(f"🛠️ [Gemini Image Edit] aspect_ratio={aspect_ratio}")
+    print(f"🚀 [Gemini Image Edit] Prompt:\n{final_prompt}")
     resp = client.models.generate_content(
         model=model,
         contents=[
             types.Part.from_bytes(data=original_image_bytes, mime_type=image_mime_type),
-            {"text": edit_prompt},
+            {"text": final_prompt},
         ],
         config=types.GenerateContentConfig(
-            response_modalities=["Image"],
+            #response_modalities=["Image"],
+            response_modalities=[types.Modality.IMAGE],
+            image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
             # 可選：image_config=types.ImageConfig(aspect_ratio="1:1"),
         ),
     )
 
+    #####
+######
+    #####
     parts = getattr(resp.candidates[0].content, "parts", []) if resp.candidates else []
     for p in parts:
         inline = getattr(p, "inline_data", None)
@@ -869,6 +887,8 @@ async def edit_image_api(
         edited_image_data_url = gemini_image_editing(
             edit_prompt=edit_prompt,
             original_image_bytes=original_image_bytes,
+            aspect_ratio=payload.aspect_ratio,              
+            video_techniques=payload.video_techniques,   
             image_mime_type=image_mime_type
         )
     except Exception as e:
