@@ -22,6 +22,16 @@ def get_gemini_client():
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY missing at runtime")
     return genai.Client(api_key=api_key)
+from uuid import uuid4
+
+def _new_request_id() -> str:
+    # 短一點方便看 log
+    return uuid4().hex[:12]
+    
+from fastapi.responses import JSONResponse
+import logging
+
+
 
 # 確保 GOOGLE_API_KEY 是您的環境變數名稱
 
@@ -93,6 +103,7 @@ app.add_middleware(
     allow_methods=["*"],         
     allow_headers=["*"],         
 )
+
 
 
 # ==========================================================
@@ -1348,9 +1359,8 @@ async def serve_image_from_disk(filename: str):
 
 
 # --- 錯誤處理範例 ---
+
 @app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={"message": "An internal server error occurred.", "details": str(exc)},
-    )
+async def unhandled_exception_handler(request, exc: Exception):
+    logger.exception("Unhandled error: %s %s", request.method, request.url, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
